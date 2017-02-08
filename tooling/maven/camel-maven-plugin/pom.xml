@@ -21,7 +21,7 @@
   <parent>
     <groupId>org.apache.camel</groupId>
     <artifactId>maven-plugins</artifactId>
-    <version>2.18.0-SNAPSHOT</version>
+    <version>2.19.0-SNAPSHOT</version>
   </parent>
 
   <artifactId>camel-maven-plugin</artifactId>
@@ -71,7 +71,39 @@
       <groupId>org.apache.camel</groupId>
       <artifactId>camel-cdi</artifactId>
     </dependency>
-    
+
+    <!-- camel-catalog -->
+    <dependency>
+      <groupId>org.apache.camel</groupId>
+      <artifactId>camel-catalog</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.camel</groupId>
+      <artifactId>camel-catalog-lucene</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.camel</groupId>
+      <artifactId>camel-catalog-maven</artifactId>
+    </dependency>
+
+    <!-- camel route parser -->
+    <dependency>
+      <groupId>org.apache.camel</groupId>
+      <artifactId>camel-route-parser</artifactId>
+    </dependency>
+
+    <!-- roaster java parser -->
+    <dependency>
+      <groupId>org.jboss.forge.roaster</groupId>
+      <artifactId>roaster-api</artifactId>
+      <version>${roaster-version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.jboss.forge.roaster</groupId>
+      <artifactId>roaster-jdt</artifactId>
+      <version>${roaster-version}</version>
+    </dependency>
+
     <!-- logging -->
     <dependency>
       <groupId>org.apache.logging.log4j</groupId>
@@ -88,7 +120,5 @@
       <artifactId>log4j-slf4j-impl</artifactId>
       <scope>test</scope>
     </dependency>
-
   </dependencies>
-
 </project>

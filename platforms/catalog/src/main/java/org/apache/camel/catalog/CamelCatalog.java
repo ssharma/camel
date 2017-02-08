@@ -29,6 +29,17 @@ import javax.management.MXBean;
 public interface CamelCatalog {
 
     /**
+     * To plugin a custom {@link RuntimeProvider} that amends the catalog to only include information that is supported on the runtime.
+     */
+    void setRuntimeProvider(RuntimeProvider provider);
+
+    /**
+     * Gets the {@link RuntimeProvider} in use.
+     * @return
+     */
+    RuntimeProvider getRuntimeProvider();
+
+    /**
      * Enables caching of the resources which makes the catalog faster, but keeps data in memory during caching.
      * <p/>
      * The catalog does not cache by default.
@@ -36,14 +47,29 @@ public interface CamelCatalog {
     void enableCache();
 
     /**
+     * Whether caching has been enabled.
+     */
+    boolean isCaching();
+
+    /**
      * To plugin a custom {@link SuggestionStrategy} to provide suggestion for unknown options
      */
     void setSuggestionStrategy(SuggestionStrategy suggestionStrategy);
 
     /**
+     * Gets the {@link SuggestionStrategy} in use
+     */
+    SuggestionStrategy getSuggestionStrategy();
+
+    /**
      * To plugin a custom {@link VersionManager} to load other versions of Camel the catalog should use.
      */
     void setVersionManager(VersionManager versionManager);
+
+    /**
+     * Gets the {@link VersionManager} in use
+     */
+    VersionManager getVersionManager();
 
     /**
      * Adds a 3rd party component to this catalog.
@@ -54,12 +80,30 @@ public interface CamelCatalog {
     void addComponent(String name, String className);
 
     /**
+     * Adds a 3rd party component to this catalog.
+     *
+     * @param name       the component name
+     * @param className  the fully qualified class name for the component class
+     * @param jsonSchema the component JSon schema
+     */
+    void addComponent(String name, String className, String jsonSchema);
+
+    /**
      * Adds a 3rd party data format to this catalog.
      *
      * @param name      the data format name
      * @param className the fully qualified class name for the data format class
      */
     void addDataFormat(String name, String className);
+
+    /**
+     * Adds a 3rd party data format to this catalog.
+     *
+     * @param name      the data format name
+     * @param className the fully qualified class name for the data format class
+     * @param jsonSchema the data format JSon schema
+     */
+    void addDataFormat(String name, String className, String jsonSchema);
 
     /**
      * The version of this Camel Catalog
@@ -106,6 +150,11 @@ public interface CamelCatalog {
     List<String> findModelNames();
 
     /**
+     * Find all the other (miscellaneous) names from the Camel catalog
+     */
+    List<String> findOtherNames();
+
+    /**
      * Find all the component names from the Camel catalog that matches the label
      */
     List<String> findComponentNames(String filter);
@@ -124,6 +173,11 @@ public interface CamelCatalog {
      * Find all the model names from the Camel catalog that matches the label
      */
     List<String> findModelNames(String filter);
+
+    /**
+     * Find all the other (miscellaneous) names from the Camel catalog that matches the label
+     */
+    List<String> findOtherNames(String filter);
 
     /**
      * Returns the component information as JSon format.
@@ -150,6 +204,14 @@ public interface CamelCatalog {
     String languageJSonSchema(String name);
 
     /**
+     * Returns the other (miscellaneous) information as JSon format.
+     *
+     * @param name the other (miscellaneous) name
+     * @return other (miscellaneous) details in JSon
+     */
+    String otherJSonSchema(String name);
+
+    /**
      * Returns the model information as JSon format.
      *
      * @param name the model name
@@ -166,6 +228,14 @@ public interface CamelCatalog {
     String componentAsciiDoc(String name);
 
     /**
+     * Returns the component documentation as HTML format.
+     *
+     * @param name the component name
+     * @return component documentation in html format.
+     */
+    String componentHtmlDoc(String name);
+
+    /**
      * Returns the data format documentation as Ascii doc format.
      *
      * @param name the data format name
@@ -174,12 +244,44 @@ public interface CamelCatalog {
     String dataFormatAsciiDoc(String name);
 
     /**
+     * Returns the data format documentation as HTML format.
+     *
+     * @param name the data format name
+     * @return data format documentation in HTML format.
+     */
+    String dataFormatHtmlDoc(String name);
+
+    /**
      * Returns the language documentation as Ascii doc format.
      *
      * @param name the language name
      * @return language documentation in ascii doc format.
      */
     String languageAsciiDoc(String name);
+
+    /**
+     * Returns the language documentation as HTML format.
+     *
+     * @param name the language name
+     * @return language documentation in HTML format.
+     */
+    String languageHtmlDoc(String name);
+
+    /**
+     * Returns the other (miscellaneous) documentation as Ascii doc format.
+     *
+     * @param name the other (miscellaneous) name
+     * @return other (miscellaneous) documentation in ascii doc format.
+     */
+    String otherAsciiDoc(String name);
+
+    /**
+     * Returns the other (miscellaneous) documentation as HTML format.
+     *
+     * @param name the other (miscellaneous) name
+     * @return other (miscellaneous) documentation in HTML format.
+     */
+    String otherHtmlDoc(String name);
 
     /**
      * Find all the unique label names all the components are using.
@@ -196,7 +298,7 @@ public interface CamelCatalog {
     Set<String> findDataFormatLabels();
 
     /**
-     * Find all the unique label names all the data formats are using.
+     * Find all the unique label names all the languages are using.
      *
      * @return a set of all the labels.
      */
@@ -208,6 +310,13 @@ public interface CamelCatalog {
      * @return a set of all the labels.
      */
     Set<String> findModelLabels();
+
+    /**
+     * Find all the unique label names all the other (miscellaneous) are using.
+     *
+     * @return a set of all the labels.
+     */
+    Set<String> findOtherLabels();
 
     /**
      * Returns the Apache Camel Maven Archetype catalog in XML format.
@@ -237,6 +346,16 @@ public interface CamelCatalog {
      * @return properties as key value pairs of each endpoint option
      */
     Map<String, String> endpointProperties(String uri) throws URISyntaxException;
+
+    /**
+     * Parses the endpoint uri and constructs a key/value properties of only the lenient properties (eg custom options)
+     * <p/>
+     * For example using the HTTP components to provide query parameters in the endpoint uri.
+     *
+     * @param uri  the endpoint uri
+     * @return properties as key value pairs of each lenient properties
+     */
+    Map<String, String> endpointLenientProperties(String uri) throws URISyntaxException;
 
     /**
      * Validates the pattern whether its a valid time pattern.
@@ -269,14 +388,43 @@ public interface CamelCatalog {
     EndpointValidationResult validateEndpointProperties(String uri, boolean ignoreLenientProperties);
 
     /**
+     * Parses and validates the endpoint uri and constructs a key/value properties of each option.
+     * <p/>
+     * The option ignoreLenientProperties can be used to ignore components that uses lenient properties.
+     * When this is true, then the uri validation is stricter but would fail on properties that are not part of the component
+     * but in the uri because of using lenient properties.
+     * For example using the HTTP components to provide query parameters in the endpoint uri.
+     *
+     * @param uri  the endpoint uri
+     * @param ignoreLenientProperties  whether to ignore components that uses lenient properties.
+     * @param consumerOnly whether the endpoint is only used as a consumer
+     * @param producerOnly whether the endpoint is only used as a producer
+     * @return validation result
+     */
+    EndpointValidationResult validateEndpointProperties(String uri, boolean ignoreLenientProperties, boolean consumerOnly, boolean producerOnly);
+
+    /**
      * Parses and validates the simple expression.
      * <p/>
      * <b>Important:</b> This requires having <tt>camel-core</tt> on the classpath
      *
      * @param simple  the simple expression
      * @return validation result
+     * @deprecated use {@link #validateSimpleExpression(ClassLoader, String)}
      */
+    @Deprecated
     SimpleValidationResult validateSimpleExpression(String simple);
+
+    /**
+     * Parses and validates the simple expression.
+     * <p/>
+     * <b>Important:</b> This requires having <tt>camel-core</tt> on the classpath
+     *
+     * @param classLoader a custom classloader to use for loading the language from the classpath, or <tt>null</tt> for using default classloader
+     * @param simple  the simple expression
+     * @return validation result
+     */
+    SimpleValidationResult validateSimpleExpression(ClassLoader classLoader, String simple);
 
     /**
      * Parses and validates the simple predicate
@@ -285,8 +433,45 @@ public interface CamelCatalog {
      *
      * @param simple  the simple predicate
      * @return validation result
+     * @deprecated use {@link #validateSimplePredicate(ClassLoader, String)}
      */
+    @Deprecated
     SimpleValidationResult validateSimplePredicate(String simple);
+
+    /**
+     * Parses and validates the simple predicate
+     * <p/>
+     * <b>Important:</b> This requires having <tt>camel-core</tt> on the classpath
+     *
+     * @param classLoader a custom classloader to use for loading the language from the classpath, or <tt>null</tt> for using default classloader
+     * @param simple  the simple predicate
+     * @return validation result
+     */
+    SimpleValidationResult validateSimplePredicate(ClassLoader classLoader, String simple);
+
+    /**
+     * Parses and validates the language as a predicate
+     * <p/>
+     * <b>Important:</b> This requires having <tt>camel-core</tt> and the language dependencies on the classpath
+     *
+     * @param classLoader a custom classloader to use for loading the language from the classpath, or <tt>null</tt> for using default classloader
+     * @param language the name of the language
+     * @param text  the predicate text
+     * @return validation result
+     */
+    LanguageValidationResult validateLanguagePredicate(ClassLoader classLoader, String language, String text);
+
+    /**
+     * Parses and validates the language as an expression
+     * <p/>
+     * <b>Important:</b> This requires having <tt>camel-core</tt> and the language dependencies on the classpath
+     *
+     * @param classLoader a custom classloader to use for loading the language from the classpath, or <tt>null</tt> for using default classloader
+     * @param language the name of the language
+     * @param text  the expression text
+     * @return validation result
+     */
+    LanguageValidationResult validateLanguageExpression(ClassLoader classLoader, String language, String text);
 
     /**
      * Returns the component name from the given endpoint uri
@@ -359,6 +544,11 @@ public interface CamelCatalog {
      * Lists all the models (EIPs) summary details in JSon
      */
     String listModelsAsJson();
+
+    /**
+     * Lists all the others (miscellaneous) summary details in JSon
+     */
+    String listOthersAsJson();
 
     /**
      * Reports a summary what the catalog contains in JSon

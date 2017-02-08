@@ -20,6 +20,7 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
@@ -38,6 +39,7 @@ import java.util.TreeSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
+import javax.print.attribute.URISyntax;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.xpath.XPathConstants;
 import javax.xml.xpath.XPathFactory;
@@ -52,12 +54,16 @@ import static org.apache.camel.catalog.JSonSchemaHelper.getPropertyKind;
 import static org.apache.camel.catalog.JSonSchemaHelper.getPropertyNameFromNameWithPrefix;
 import static org.apache.camel.catalog.JSonSchemaHelper.getPropertyPrefix;
 import static org.apache.camel.catalog.JSonSchemaHelper.getRow;
+import static org.apache.camel.catalog.JSonSchemaHelper.isComponentConsumerOnly;
 import static org.apache.camel.catalog.JSonSchemaHelper.isComponentLenientProperties;
+import static org.apache.camel.catalog.JSonSchemaHelper.isComponentProducerOnly;
 import static org.apache.camel.catalog.JSonSchemaHelper.isPropertyBoolean;
+import static org.apache.camel.catalog.JSonSchemaHelper.isPropertyConsumerOnly;
 import static org.apache.camel.catalog.JSonSchemaHelper.isPropertyInteger;
 import static org.apache.camel.catalog.JSonSchemaHelper.isPropertyMultiValue;
 import static org.apache.camel.catalog.JSonSchemaHelper.isPropertyNumber;
 import static org.apache.camel.catalog.JSonSchemaHelper.isPropertyObject;
+import static org.apache.camel.catalog.JSonSchemaHelper.isPropertyProducerOnly;
 import static org.apache.camel.catalog.JSonSchemaHelper.isPropertyRequired;
 import static org.apache.camel.catalog.JSonSchemaHelper.stripOptionalPrefixFromName;
 import static org.apache.camel.catalog.URISupport.createQueryString;
@@ -73,13 +79,7 @@ public class DefaultCamelCatalog implements CamelCatalog {
 	// CHECKSTYLE:OFF
 
     private static final String MODELS_CATALOG = "org/apache/camel/catalog/models.properties";
-    private static final String COMPONENTS_CATALOG = "org/apache/camel/catalog/components.properties";
-    private static final String DATA_FORMATS_CATALOG = "org/apache/camel/catalog/dataformats.properties";
-    private static final String LANGUAGE_CATALOG = "org/apache/camel/catalog/languages.properties";
     private static final String MODEL_DIR = "org/apache/camel/catalog/models";
-    private static final String COMPONENT_DIR = "org/apache/camel/catalog/components";
-    private static final String DATAFORMAT_DIR = "org/apache/camel/catalog/dataformats";
-    private static final String LANGUAGE_DIR = "org/apache/camel/catalog/languages";
     private static final String DOC_DIR = "org/apache/camel/catalog/docs";
     private static final String ARCHETYPES_CATALOG = "org/apache/camel/catalog/archetypes/archetype-catalog.xml";
     private static final String SCHEMAS_XML = "org/apache/camel/catalog/schemas";
@@ -90,7 +90,9 @@ public class DefaultCamelCatalog implements CamelCatalog {
 
     // 3rd party components/data-formats
     private final Map<String, String> extraComponents = new HashMap<String, String>();
+    private final Map<String, String> extraComponentsJSonSchema = new HashMap<String, String>();
     private final Map<String, String> extraDataFormats = new HashMap<String, String>();
+    private final Map<String, String> extraDataFormatsJSonSchema = new HashMap<String, String>();
 
     // cache of operation -> result
     private final Map<String, Object> cache = new HashMap<String, Object>();
@@ -98,6 +100,7 @@ public class DefaultCamelCatalog implements CamelCatalog {
     private boolean caching;
     private SuggestionStrategy suggestionStrategy;
     private VersionManager versionManager = new DefaultVersionManager(this);
+    private RuntimeProvider runtimeProvider = new DefaultRuntimeProvider(this);
 
     /**
      * Creates the {@link CamelCatalog} without caching enabled.
@@ -115,8 +118,32 @@ public class DefaultCamelCatalog implements CamelCatalog {
     }
 
     @Override
+    public RuntimeProvider getRuntimeProvider() {
+        return runtimeProvider;
+    }
+
+    @Override
+    public void setRuntimeProvider(RuntimeProvider runtimeProvider) {
+        this.runtimeProvider = runtimeProvider;
+        // inject CamelCatalog to the provider
+        this.runtimeProvider.setCamelCatalog(this);
+        // invalidate the cache
+        cache.remove("findComponentNames");
+        cache.remove("listComponentsAsJson");
+        cache.remove("findDataFormatNames");
+        cache.remove("listDataFormatsAsJson");
+        cache.remove("findLanguageNames");
+        cache.remove("listLanguagesAsJson");
+    }
+
+    @Override
     public void enableCache() {
         caching = true;
+    }
+
+    @Override
+    public boolean isCaching() {
+        return caching;
     }
 
     @Override
@@ -125,8 +152,18 @@ public class DefaultCamelCatalog implements CamelCatalog {
     }
 
     @Override
+    public SuggestionStrategy getSuggestionStrategy() {
+        return suggestionStrategy;
+    }
+
+    @Override
     public void setVersionManager(VersionManager versionManager) {
         this.versionManager = versionManager;
+    }
+
+    @Override
+    public VersionManager getVersionManager() {
+        return versionManager;
     }
 
     @Override
@@ -139,12 +176,28 @@ public class DefaultCamelCatalog implements CamelCatalog {
     }
 
     @Override
+    public void addComponent(String name, String className, String jsonSchema) {
+        addComponent(name, className);
+        if (jsonSchema != null) {
+            extraComponentsJSonSchema.put(name, jsonSchema);
+        }
+    }
+
+    @Override
     public void addDataFormat(String name, String className) {
         extraDataFormats.put(name, className);
         // invalidate the cache
         cache.remove("findDataFormatNames");
         cache.remove("findDataFormatLabels");
         cache.remove("listDataFormatsAsJson");
+    }
+
+    @Override
+    public void addDataFormat(String name, String className, String jsonSchema) {
+        addDataFormat(name, className);
+        if (jsonSchema != null) {
+            extraDataFormatsJSonSchema.put(name, jsonSchema);
+        }
     }
 
     @Override
@@ -178,15 +231,7 @@ public class DefaultCamelCatalog implements CamelCatalog {
         }
 
         if (names == null) {
-            names = new ArrayList<String>();
-            InputStream is = versionManager.getResourceAsStream(COMPONENTS_CATALOG);
-            if (is != null) {
-                try {
-                    CatalogHelper.loadLines(is, names);
-                } catch (IOException e) {
-                    // ignore
-                }
-            }
+            names = runtimeProvider.findComponentNames();
 
             // include third party components
             for (Map.Entry<String, String> entry : extraComponents.entrySet()) {
@@ -211,15 +256,7 @@ public class DefaultCamelCatalog implements CamelCatalog {
         }
 
         if (names == null) {
-            names = new ArrayList<String>();
-            InputStream is = versionManager.getResourceAsStream(DATA_FORMATS_CATALOG);
-            if (is != null) {
-                try {
-                    CatalogHelper.loadLines(is, names);
-                } catch (IOException e) {
-                    // ignore
-                }
-            }
+            names = runtimeProvider.findDataFormatNames();
 
             // include third party data formats
             for (Map.Entry<String, String> entry : extraDataFormats.entrySet()) {
@@ -244,15 +281,8 @@ public class DefaultCamelCatalog implements CamelCatalog {
         }
 
         if (names == null) {
-            names = new ArrayList<String>();
-            InputStream is = versionManager.getResourceAsStream(LANGUAGE_CATALOG);
-            if (is != null) {
-                try {
-                    CatalogHelper.loadLines(is, names);
-                } catch (IOException e) {
-                    // ignore
-                }
-            }
+            names = runtimeProvider.findLanguageNames();
+
             if (caching) {
                 cache.put("findLanguageNames", names);
             }
@@ -280,6 +310,24 @@ public class DefaultCamelCatalog implements CamelCatalog {
             }
             if (caching) {
                 cache.put("findModelNames", names);
+            }
+        }
+        return names;
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public List<String> findOtherNames() {
+        List<String> names = null;
+        if (caching) {
+            names = (List<String>) cache.get("findOtherNames");
+        }
+
+        if (names == null) {
+            names = runtimeProvider.findOtherNames();
+
+            if (caching) {
+                cache.put("findOtherNames", names);
             }
         }
         return names;
@@ -410,6 +458,37 @@ public class DefaultCamelCatalog implements CamelCatalog {
     }
 
     @Override
+    public List<String> findOtherNames(String filter) {
+        // should not cache when filter parameter can by any kind of value
+        List<String> answer = new ArrayList<String>();
+
+        List<String> names = findOtherNames();
+        for (String name : names) {
+            String json = otherJSonSchema(name);
+            if (json != null) {
+                List<Map<String, String>> rows = JSonSchemaHelper.parseJsonSchema("other", json, false);
+                for (Map<String, String> row : rows) {
+                    if (row.containsKey("label")) {
+                        String label = row.get("label");
+                        String[] parts = label.split(",");
+                        for (String part : parts) {
+                            try {
+                                if (part.equalsIgnoreCase(filter) || CatalogHelper.matchWildcard(part, filter) || part.matches(filter)) {
+                                    answer.add(name);
+                                }
+                            } catch (PatternSyntaxException e) {
+                                // ignore as filter is maybe not a pattern
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return answer;
+    }
+
+    @Override
     public String modelJSonSchema(String name) {
         String file = MODEL_DIR + "/" + name + ".json";
 
@@ -437,7 +516,7 @@ public class DefaultCamelCatalog implements CamelCatalog {
 
     @Override
     public String componentJSonSchema(String name) {
-        String file = COMPONENT_DIR + "/" + name + ".json";
+        String file = runtimeProvider.getComponentJSonSchemaDirectory() + "/" + name + ".json";
 
         String answer = null;
         if (caching) {
@@ -453,18 +532,22 @@ public class DefaultCamelCatalog implements CamelCatalog {
                     // ignore
                 }
             } else {
-                // its maybe a third party so try load it
-                String className = extraComponents.get(name);
-                if (className != null) {
-                    String packageName = className.substring(0, className.lastIndexOf('.'));
-                    packageName = packageName.replace('.', '/');
-                    String path = packageName + "/" + name + ".json";
-                    is = versionManager.getResourceAsStream(path);
-                    if (is != null) {
-                        try {
-                            answer = CatalogHelper.loadText(is);
-                        } catch (IOException e) {
-                            // ignore
+                // its maybe a third party so try to see if we have the json schema already
+                answer = extraComponentsJSonSchema.get(name);
+                if (answer == null) {
+                    // or if we can load it from the classpath
+                    String className = extraComponents.get(name);
+                    if (className != null) {
+                        String packageName = className.substring(0, className.lastIndexOf('.'));
+                        packageName = packageName.replace('.', '/');
+                        String path = packageName + "/" + name + ".json";
+                        is = versionManager.getResourceAsStream(path);
+                        if (is != null) {
+                            try {
+                                answer = CatalogHelper.loadText(is);
+                            } catch (IOException e) {
+                                // ignore
+                            }
                         }
                     }
                 }
@@ -479,7 +562,7 @@ public class DefaultCamelCatalog implements CamelCatalog {
 
     @Override
     public String dataFormatJSonSchema(String name) {
-        String file = DATAFORMAT_DIR + "/" + name + ".json";
+        String file = runtimeProvider.getDataFormatJSonSchemaDirectory() + "/" + name + ".json";
 
         String answer = null;
         if (caching) {
@@ -495,18 +578,22 @@ public class DefaultCamelCatalog implements CamelCatalog {
                     // ignore
                 }
             } else {
-                // its maybe a third party so try load it
-                String className = extraDataFormats.get(name);
-                if (className != null) {
-                    String packageName = className.substring(0, className.lastIndexOf('.'));
-                    packageName = packageName.replace('.', '/');
-                    String path = packageName + "/" + name + ".json";
-                    is = versionManager.getResourceAsStream(path);
-                    if (is != null) {
-                        try {
-                            answer = CatalogHelper.loadText(is);
-                        } catch (IOException e) {
-                            // ignore
+                // its maybe a third party so try to see if we have the json schema already
+                answer = extraDataFormatsJSonSchema.get(name);
+                if (answer == null) {
+                    // or if we can load it from the classpath
+                    String className = extraDataFormats.get(name);
+                    if (className != null) {
+                        String packageName = className.substring(0, className.lastIndexOf('.'));
+                        packageName = packageName.replace('.', '/');
+                        String path = packageName + "/" + name + ".json";
+                        is = versionManager.getResourceAsStream(path);
+                        if (is != null) {
+                            try {
+                                answer = CatalogHelper.loadText(is);
+                            } catch (IOException e) {
+                                // ignore
+                            }
                         }
                     }
                 }
@@ -526,7 +613,7 @@ public class DefaultCamelCatalog implements CamelCatalog {
             name = "bean";
         }
 
-        String file = LANGUAGE_DIR + "/" + name + ".json";
+        String file = runtimeProvider.getLanguageJSonSchemaDirectory() + "/" + name + ".json";
 
         String answer = null;
         if (caching) {
@@ -551,6 +638,32 @@ public class DefaultCamelCatalog implements CamelCatalog {
     }
 
     @Override
+    public String otherJSonSchema(String name) {
+        String file = runtimeProvider.getOtherJSonSchemaDirectory() + "/" + name + ".json";
+
+        String answer = null;
+        if (caching) {
+            answer = (String) cache.get("other-" + file);
+        }
+
+        if (answer == null) {
+            InputStream is = versionManager.getResourceAsStream(file);
+            if (is != null) {
+                try {
+                    answer = CatalogHelper.loadText(is);
+                } catch (IOException e) {
+                    // ignore
+                }
+            }
+            if (caching) {
+                cache.put("other-" + file, answer);
+            }
+        }
+
+        return answer;
+    }
+
+    @Override
     public String componentAsciiDoc(String name) {
         String answer = doComponentAsciiDoc(name);
         if (answer == null) {
@@ -562,6 +675,24 @@ public class DefaultCamelCatalog implements CamelCatalog {
                 if (schemes != null && schemes.contains(name)) {
                     String first = schemes.split(",")[0];
                     return componentAsciiDoc(first);
+                }
+            }
+        }
+        return answer;
+    }
+
+    @Override
+    public String componentHtmlDoc(String name) {
+        String answer = doComponentHtmlDoc(name);
+        if (answer == null) {
+            // maybe the name is an alternative scheme name, and then we need to find the component that
+            // has the name as alternative, and use the first scheme as the name to find the documentation
+            List<String> names = findComponentNames();
+            for (String alternative : names) {
+                String schemes = getAlternativeComponentName(alternative);
+                if (schemes != null && schemes.contains(name)) {
+                    String first = schemes.split(",")[0];
+                    return componentHtmlDoc(first);
                 }
             }
         }
@@ -609,6 +740,52 @@ public class DefaultCamelCatalog implements CamelCatalog {
                     String packageName = className.substring(0, className.lastIndexOf('.'));
                     packageName = packageName.replace('.', '/');
                     String path = packageName + "/" + name + "-component.adoc";
+                    is = versionManager.getResourceAsStream(path);
+                    if (is != null) {
+                        try {
+                            answer = CatalogHelper.loadText(is);
+                        } catch (IOException e) {
+                            // ignore
+                        }
+                    }
+                }
+            }
+            if (caching) {
+                cache.put("component-" + file, answer);
+            }
+        }
+
+        return answer;
+    }
+
+    private String doComponentHtmlDoc(String name) {
+        // special for mail component
+        if (name.equals("imap") || name.equals("imaps") || name.equals("pop3") || name.equals("pop3s") || name.equals("smtp") || name.equals("smtps")) {
+            name = "mail";
+        }
+
+        String file = DOC_DIR + "/" + name + "-component.html";
+
+        String answer = null;
+        if (caching) {
+            answer = (String) cache.get("component-" + file);
+        }
+
+        if (answer == null) {
+            InputStream is = versionManager.getResourceAsStream(file);
+            if (is != null) {
+                try {
+                    answer = CatalogHelper.loadText(is);
+                } catch (IOException e) {
+                    // ignore
+                }
+            } else {
+                // its maybe a third party so try load it
+                String className = extraComponents.get(name);
+                if (className != null) {
+                    String packageName = className.substring(0, className.lastIndexOf('.'));
+                    packageName = packageName.replace('.', '/');
+                    String path = packageName + "/" + name + "-component.html";
                     is = versionManager.getResourceAsStream(path);
                     if (is != null) {
                         try {
@@ -677,6 +854,55 @@ public class DefaultCamelCatalog implements CamelCatalog {
     }
 
     @Override
+    public String dataFormatHtmlDoc(String name) {
+        // special for some name data formats
+        if (name.startsWith("bindy")) {
+            name = "bindy";
+        } else if (name.startsWith("univocity")) {
+            name = "univocity";
+        }
+
+        String file = DOC_DIR + "/" + name + "-dataformat.html";
+
+        String answer = null;
+        if (caching) {
+            answer = (String) cache.get("dataformat-" + file);
+        }
+
+        if (answer == null) {
+            InputStream is = versionManager.getResourceAsStream(file);
+            if (is != null) {
+                try {
+                    answer = CatalogHelper.loadText(is);
+                } catch (IOException e) {
+                    // ignore
+                }
+            } else {
+                // its maybe a third party so try load it
+                String className = extraDataFormats.get(name);
+                if (className != null) {
+                    String packageName = className.substring(0, className.lastIndexOf('.'));
+                    packageName = packageName.replace('.', '/');
+                    String path = packageName + "/" + name + "-dataformat.html";
+                    is = versionManager.getResourceAsStream(path);
+                    if (is != null) {
+                        try {
+                            answer = CatalogHelper.loadText(is);
+                        } catch (IOException e) {
+                            // ignore
+                        }
+                    }
+                }
+            }
+            if (caching) {
+                cache.put("dataformat-" + file, answer);
+            }
+        }
+
+        return answer;
+    }
+
+    @Override
     public String languageAsciiDoc(String name) {
         // if we try to look method then its in the bean.adoc file
         if ("method".equals(name)) {
@@ -684,6 +910,89 @@ public class DefaultCamelCatalog implements CamelCatalog {
         }
 
         String file = DOC_DIR + "/" + name + "-language.adoc";
+
+        String answer = null;
+        if (caching) {
+            answer = (String) cache.get("language-" + file);
+        }
+
+        if (answer == null) {
+            InputStream is = versionManager.getResourceAsStream(file);
+            if (is != null) {
+                try {
+                    answer = CatalogHelper.loadText(is);
+                } catch (IOException e) {
+                    // ignore
+                }
+            }
+            if (caching) {
+                cache.put("language-" + file, answer);
+            }
+        }
+
+        return answer;
+    }
+
+    @Override
+    public String languageHtmlDoc(String name) {
+        // if we try to look method then its in the bean.html file
+        if ("method".equals(name)) {
+            name = "bean";
+        }
+
+        String file = DOC_DIR + "/" + name + "-language.html";
+
+        String answer = null;
+        if (caching) {
+            answer = (String) cache.get("language-" + file);
+        }
+
+        if (answer == null) {
+            InputStream is = versionManager.getResourceAsStream(file);
+            if (is != null) {
+                try {
+                    answer = CatalogHelper.loadText(is);
+                } catch (IOException e) {
+                    // ignore
+                }
+            }
+            if (caching) {
+                cache.put("language-" + file, answer);
+            }
+        }
+
+        return answer;
+    }
+
+    @Override
+    public String otherAsciiDoc(String name) {
+        String file = DOC_DIR + "/" + name + ".adoc";
+
+        String answer = null;
+        if (caching) {
+            answer = (String) cache.get("other-" + file);
+        }
+
+        if (answer == null) {
+            InputStream is = versionManager.getResourceAsStream(file);
+            if (is != null) {
+                try {
+                    answer = CatalogHelper.loadText(is);
+                } catch (IOException e) {
+                    // ignore
+                }
+            }
+            if (caching) {
+                cache.put("other-" + file, answer);
+            }
+        }
+
+        return answer;
+    }
+
+    @Override
+    public String otherHtmlDoc(String name) {
+        String file = DOC_DIR + "/" + name + "-other.html";
 
         String answer = null;
         if (caching) {
@@ -844,6 +1153,40 @@ public class DefaultCamelCatalog implements CamelCatalog {
     }
 
     @Override
+    @SuppressWarnings("unchecked")
+    public Set<String> findOtherLabels() {
+        SortedSet<String> answer = null;
+        if (caching) {
+            answer = (TreeSet<String>) cache.get("findOtherLabels");
+        }
+
+        if (answer == null) {
+            answer = new TreeSet<String>();
+            List<String> names = findOtherNames();
+            for (String name : names) {
+                String json = otherJSonSchema(name);
+                if (json != null) {
+                    List<Map<String, String>> rows = JSonSchemaHelper.parseJsonSchema("other", json, false);
+                    for (Map<String, String> row : rows) {
+                        if (row.containsKey("label")) {
+                            String label = row.get("label");
+                            String[] parts = label.split(",");
+                            for (String part : parts) {
+                                answer.add(part);
+                            }
+                        }
+                    }
+                }
+            }
+            if (caching) {
+                cache.put("findOtherLabels", answer);
+            }
+        }
+
+        return answer;
+    }
+
+    @Override
     public String archetypeCatalogAsXml() {
         String file = ARCHETYPES_CATALOG;
 
@@ -928,11 +1271,16 @@ public class DefaultCamelCatalog implements CamelCatalog {
 
     @Override
     public EndpointValidationResult validateEndpointProperties(String uri) {
-        return validateEndpointProperties(uri, false);
+        return validateEndpointProperties(uri, false, false, false);
     }
 
     @Override
     public EndpointValidationResult validateEndpointProperties(String uri, boolean ignoreLenientProperties) {
+        return validateEndpointProperties(uri, ignoreLenientProperties,false, false);
+    }
+
+    @Override
+    public EndpointValidationResult validateEndpointProperties(String uri, boolean ignoreLenientProperties, boolean consumerOnly, boolean producerOnly) {
         EndpointValidationResult result = new EndpointValidationResult(uri);
 
         Map<String, String> properties;
@@ -958,9 +1306,20 @@ public class DefaultCamelCatalog implements CamelCatalog {
             }
 
             rows = JSonSchemaHelper.parseJsonSchema("component", json, false);
-            // only enable lenient properties if we should not ignore
-            lenientProperties = !ignoreLenientProperties && isComponentLenientProperties(rows);
 
+            // is the component capable of both consumer and producer?
+            boolean canConsumeAndProduce = false;
+            if (!isComponentConsumerOnly(rows) && !isComponentProducerOnly(rows)) {
+                canConsumeAndProduce = true;
+            }
+
+            if (canConsumeAndProduce && consumerOnly) {
+                // lenient properties is not support in consumer only mode if the component can do both of them
+                lenientProperties = false;
+            } else {
+                // only enable lenient properties if we should not ignore
+                lenientProperties = !ignoreLenientProperties && isComponentLenientProperties(rows);
+            }
             rows = JSonSchemaHelper.parseJsonSchema("properties", json, true);
             properties = endpointProperties(uri);
         } catch (URISyntaxException e) {
@@ -1014,17 +1373,39 @@ public class DefaultCamelCatalog implements CamelCatalog {
 
                 // only add as error if the component is not lenient properties, or not stub component
                 // and the name is not a property placeholder for one or more values
-                // as if we are lenient then the option is a dynamic extra option which we cannot validate
-                if (!namePlaceholder && !lenientProperties && !"stub".equals(scheme)) {
-                    result.addUnknown(name);
-                    if (suggestionStrategy != null) {
-                        String[] suggestions = suggestionStrategy.suggestEndpointOptions(getNames(rows), name);
-                        if (suggestions != null) {
-                            result.addUnknownSuggestions(name, suggestions);
+                if (!namePlaceholder && !"stub".equals(scheme)) {
+                    if (lenientProperties) {
+                        // as if we are lenient then the option is a dynamic extra option which we cannot validate
+                        result.addLenient(name);
+                    } else {
+                        // its unknown
+                        result.addUnknown(name);
+                        if (suggestionStrategy != null) {
+                            String[] suggestions = suggestionStrategy.suggestEndpointOptions(getNames(rows), name);
+                            if (suggestions != null) {
+                                result.addUnknownSuggestions(name, suggestions);
+                            }
                         }
                     }
                 }
             } else {
+                if ("parameter".equals(kind)) {
+                    // consumer only or producer only mode for parameters
+                    if (consumerOnly) {
+                        boolean producer = isPropertyProducerOnly(rows, name);
+                        if (producer) {
+                            // the option is only for producer so you cannot use it in consumer mode
+                            result.addNotConsumerOnly(name);
+                        }
+                    } else if (producerOnly) {
+                        boolean consumer = isPropertyConsumerOnly(rows, name);
+                        if (consumer) {
+                            // the option is only for consumer so you cannot use it in producer mode
+                            result.addNotProducerOnly(name);
+                        }
+                    }
+                }
+
                 // default value
                 String defaultValue = getPropertyDefaultValue(rows, name);
                 if (defaultValue != null) {
@@ -1064,8 +1445,8 @@ public class DefaultCamelCatalog implements CamelCatalog {
                     }
                 }
 
-                // is reference lookup of bean (not applicable for @UriPath, or multi-valued)
-                if (!mulitValue && !"path".equals(kind) && isPropertyObject(rows, name)) {
+                // is reference lookup of bean (not applicable for @UriPath, enums, or multi-valued)
+                if (!mulitValue && enums == null && !"path".equals(kind) && isPropertyObject(rows, name)) {
                     // must start with # and be at least 2 characters
                     if (!value.startsWith("#") || value.length() <= 1) {
                         result.addInvalidReference(name, value);
@@ -1253,7 +1634,7 @@ public class DefaultCamelCatalog implements CamelCatalog {
 
         // special for activemq/jms where the enum for destinationType causes a token issue as it includes a colon
         // for 'temp:queue' and 'temp:topic' values
-        if ("activemq".equals(scheme) || "jms".equals("scheme")) {
+        if ("activemq".equals(scheme) || "jms".equals(scheme)) {
             if (uriPath.startsWith("temp:")) {
                 prevPath = 5;
             }
@@ -1394,6 +1775,50 @@ public class DefaultCamelCatalog implements CamelCatalog {
             // remove the parameter as we run in a while loop until no more parameters
             parameters.remove(key);
         }
+
+        return answer;
+    }
+
+    @Override
+    public Map<String, String> endpointLenientProperties(String uri) throws URISyntaxException {
+        // need to normalize uri first
+
+        // parse the uri
+        URI u = normalizeUri(uri);
+        String scheme = u.getScheme();
+
+        String json = componentJSonSchema(scheme);
+        if (json == null) {
+            throw new IllegalArgumentException("Cannot find endpoint with scheme " + scheme);
+        }
+
+        List<Map<String, String>> rows = JSonSchemaHelper.parseJsonSchema("properties", json, true);
+
+        // now parse the uri parameters
+        Map<String, Object> parameters = URISupport.parseParameters(u);
+
+        // all the known options
+        Set<String> names = getNames(rows);
+
+        Map<String, String> answer = new LinkedHashMap<>();
+
+        // and covert the values to String so its JMX friendly
+        parameters.forEach((k, v) -> {
+            String key = k;
+            String value = v != null ? v.toString() : "";
+
+            // is the key a prefix property
+            int dot = key.indexOf('.');
+            if (dot != -1) {
+                String prefix = key.substring(0, dot + 1); // include dot in prefix
+                String option = getPropertyNameFromNameWithPrefix(rows, prefix);
+                if (option == null || !isPropertyMultiValue(rows, option)) {
+                    answer.put(key, value);
+                }
+            } else if (!names.contains(key)) {
+                answer.put(key, value);
+            }
+        });
 
         return answer;
     }
@@ -1596,37 +2021,175 @@ public class DefaultCamelCatalog implements CamelCatalog {
 
     @Override
     public SimpleValidationResult validateSimpleExpression(String simple) {
-        return doValidateSimple(simple, false);
+        return doValidateSimple(null, simple, false);
+    }
+
+    @Override
+    public SimpleValidationResult validateSimpleExpression(ClassLoader classLoader, String simple) {
+        return doValidateSimple(classLoader, simple, false);
     }
 
     @Override
     public SimpleValidationResult validateSimplePredicate(String simple) {
-        return doValidateSimple(simple, true);
+        return doValidateSimple(null, simple, true);
     }
 
-    private SimpleValidationResult doValidateSimple(String simple, boolean predicate) {
+    @Override
+    public SimpleValidationResult validateSimplePredicate(ClassLoader classLoader, String simple) {
+        return doValidateSimple(classLoader, simple, true);
+    }
+
+    private SimpleValidationResult doValidateSimple(ClassLoader classLoader, String simple, boolean predicate) {
+        if (classLoader == null) {
+            classLoader = DefaultCamelCatalog.class.getClassLoader();
+        }
+
+        // if there are {{ }}} property placeholders then we need to resolve them to something else
+        // as the simple parse cannot resolve them before parsing as we dont run the actual Camel application
+        // with property placeholders setup so we need to dummy this by replace the {{ }} to something else
+        // therefore we use an more unlikely character: {{XXX}} to ~^XXX^~
+        String resolved = simple.replaceAll("\\{\\{(.+)\\}\\}", "~^$1^~");
+
         SimpleValidationResult answer = new SimpleValidationResult(simple);
 
         Object instance = null;
         Class clazz = null;
         try {
-            clazz = DefaultCamelCatalog.class.getClassLoader().loadClass("org.apache.camel.language.simple.SimpleLanguage");
+            clazz = classLoader.loadClass("org.apache.camel.language.simple.SimpleLanguage");
             instance = clazz.newInstance();
         } catch (Exception e) {
             // ignore
         }
 
         if (clazz != null && instance != null) {
+            Throwable cause = null;
             try {
                 if (predicate) {
-                    instance.getClass().getMethod("createPredicate", String.class).invoke(instance, simple);
+                    instance.getClass().getMethod("createPredicate", String.class).invoke(instance, resolved);
                 } else {
-                    instance.getClass().getMethod("createExpression", String.class).invoke(instance, simple);
+                    instance.getClass().getMethod("createExpression", String.class).invoke(instance, resolved);
                 }
             } catch (InvocationTargetException e) {
-                answer.setError(e.getTargetException().getMessage());
+                cause = e.getTargetException();
             } catch (Exception e) {
-                answer.setError(e.getMessage());
+                cause = e;
+            }
+
+            if (cause != null) {
+
+                // reverse ~^XXX^~ back to {{XXX}}
+                String errMsg = cause.getMessage();
+                errMsg = errMsg.replaceAll("\\~\\^(.+)\\^\\~", "{{$1}}");
+
+                answer.setError(errMsg);
+
+                // is it simple parser exception then we can grab the index where the problem is
+                if (cause.getClass().getName().equals("org.apache.camel.language.simple.types.SimpleIllegalSyntaxException")
+                    || cause.getClass().getName().equals("org.apache.camel.language.simple.types.SimpleParserException")) {
+                    try {
+                        // we need to grab the index field from those simple parser exceptions
+                        Method method = cause.getClass().getMethod("getIndex");
+                        Object result = method.invoke(cause);
+                        if (result != null) {
+                            int index = (int) result;
+                            answer.setIndex(index);
+                        }
+                    } catch (Throwable i) {
+                        // ignore
+                    }
+                }
+
+                // we need to grab the short message field from this simple syntax exception
+                if (cause.getClass().getName().equals("org.apache.camel.language.simple.types.SimpleIllegalSyntaxException")) {
+                    try {
+                        Method method = cause.getClass().getMethod("getShortMessage");
+                        Object result = method.invoke(cause);
+                        if (result != null) {
+                            String msg = (String) result;
+                            answer.setShortError(msg);
+                        }
+                    } catch (Throwable i) {
+                        // ignore
+                    }
+
+                    if (answer.getShortError() == null) {
+                        // fallback and try to make existing message short instead
+                        String msg = answer.getError();
+                        // grab everything before " at location " which would be regarded as the short message
+                        int idx = msg.indexOf(" at location ");
+                        if (idx > 0) {
+                            msg = msg.substring(0, idx);
+                            answer.setShortError(msg);
+                        }
+                    }
+                }
+            }
+        }
+
+        return answer;
+    }
+
+    @Override
+    public LanguageValidationResult validateLanguagePredicate(ClassLoader classLoader, String language, String text) {
+        return doValidateLanguage(classLoader, language, text, true);
+    }
+
+    @Override
+    public LanguageValidationResult validateLanguageExpression(ClassLoader classLoader, String language, String text) {
+        return doValidateLanguage(classLoader, language, text, false);
+    }
+
+    private LanguageValidationResult doValidateLanguage(ClassLoader classLoader, String language, String text, boolean predicate) {
+        if (classLoader == null) {
+            classLoader = DefaultCamelCatalog.class.getClassLoader();
+        }
+
+        SimpleValidationResult answer = new SimpleValidationResult(text);
+
+        String json = languageJSonSchema(language);
+        if (json == null) {
+            answer.setError("Unknown language " + language);
+            return answer;
+        }
+
+        List<Map<String, String>> rows = JSonSchemaHelper.parseJsonSchema("language", json, false);
+        String className = null;
+        for (Map<String, String> row : rows) {
+            if (row.containsKey("javaType")) {
+                className = row.get("javaType");
+            }
+        }
+
+        if (className == null) {
+            answer.setError("Cannot find javaType for language " + language);
+            return answer;
+        }
+
+        Object instance = null;
+        Class clazz = null;
+        try {
+            clazz = classLoader.loadClass(className);
+            instance = clazz.newInstance();
+        } catch (Exception e) {
+            // ignore
+        }
+
+        if (clazz != null && instance != null) {
+            Throwable cause = null;
+            try {
+                if (predicate) {
+                    instance.getClass().getMethod("createPredicate", String.class).invoke(instance, text);
+                } else {
+                    instance.getClass().getMethod("createExpression", String.class).invoke(instance, text);
+                }
+            } catch (InvocationTargetException e) {
+                cause = e.getTargetException();
+            } catch (Exception e) {
+                cause = e;
+            }
+
+            if (cause != null) {
+                answer.setError(cause.getMessage());
             }
         }
 
@@ -1794,6 +2357,43 @@ public class DefaultCamelCatalog implements CamelCatalog {
             answer = sb.toString();
             if (caching) {
                 cache.put("listModelsAsJson", answer);
+            }
+        }
+
+        return answer;
+    }
+
+    @Override
+    public String listOthersAsJson() {
+        String answer = null;
+        if (caching) {
+            answer = (String) cache.get("listOthersAsJson");
+        }
+
+        if (answer == null) {
+            StringBuilder sb = new StringBuilder();
+            sb.append("[");
+            List<String> names = findOtherNames();
+            for (int i = 0; i < names.size(); i++) {
+                String scheme = names.get(i);
+                String json = otherJSonSchema(scheme);
+                // skip first line
+                json = CatalogHelper.between(json, "\"other\": {", "  }");
+                json = json != null ? json.trim() : "";
+                json = json + "\n  },";
+                // skip last comma if not the last
+                if (i == names.size() - 1) {
+                    json = json.substring(0, json.length() - 1);
+                }
+                sb.append("\n");
+                sb.append("  {\n");
+                sb.append("    ");
+                sb.append(json);
+            }
+            sb.append("\n]");
+            answer = sb.toString();
+            if (caching) {
+                cache.put("listOthersAsJson", answer);
             }
         }
 

@@ -22,7 +22,7 @@
   <parent>
     <groupId>org.apache.camel</groupId>
     <artifactId>camel-parent</artifactId>
-    <version>2.18.0-SNAPSHOT</version>
+    <version>2.19.0-SNAPSHOT</version>
     <relativePath>../parent</relativePath>
   </parent>
 
@@ -58,11 +58,15 @@
     <module>camel-cxf-transport</module>
     <module>camel-jms</module>
 
+    <!-- build it first so it can be used by other component to test i.e. ServiceCall EIP -->
+    <module>camel-ribbon</module>
+
     <!-- regular modules in alphabetic order -->
     <module>camel-ahc</module>
     <module>camel-ahc-ws</module>
     <module>camel-amqp</module>
     <module>camel-apns</module>
+    <module>camel-asterisk</module>
     <module>camel-atmos</module>
     <module>camel-atmosphere-websocket</module>
     <module>camel-atom</module>
@@ -74,6 +78,7 @@
     <module>camel-bean-validator</module>
     <module>camel-barcode</module>
     <module>camel-bindy</module>
+    <module>camel-bonita</module>
     <module>camel-boon</module>
     <module>camel-box</module>
     <module>camel-braintree</module>
@@ -89,6 +94,7 @@
     <module>camel-cometd</module>
     <module>camel-consul</module>
     <module>camel-context</module>
+    <module>camel-couchbase</module>
     <module>camel-couchdb</module>
     <module>camel-crypto</module>
     <module>camel-csv</module>
@@ -96,11 +102,13 @@
     <module>camel-dns</module>
     <module>camel-docker</module>
     <module>camel-dozer</module>
+    <module>camel-drill</module>
     <module>camel-dropbox</module>
     <module>camel-eclipse</module>
     <module>camel-ehcache</module>
     <module>camel-ejb</module>
     <module>camel-elasticsearch</module>
+    <module>camel-elasticsearch5</module>
     <module>camel-elsql</module>
     <module>camel-etcd</module>
     <module>camel-eventadmin</module>
@@ -118,6 +126,7 @@
     <module>camel-google-calendar</module>
     <module>camel-google-drive</module>
     <module>camel-google-mail</module>
+    <module>camel-google-pubsub</module>
     <module>camel-gora</module>
     <module>camel-grape</module>
     <module>camel-gson</module>
@@ -180,6 +189,7 @@
     <module>camel-mina2</module>
     <module>camel-mllp</module>
     <module>camel-mongodb</module>
+    <module>camel-mongodb3</module>
     <module>camel-mongodb-gridfs</module>
     <module>camel-mqtt</module>
     <module>camel-msv</module>
@@ -195,6 +205,7 @@
     <module>camel-ognl</module>
     <module>camel-olingo2</module>
     <module>camel-openshift</module>
+    <module>camel-openstack</module>
     <module>camel-optaplanner</module>
     <module>camel-paho</module>
     <module>camel-paxlogging</module>
@@ -206,8 +217,8 @@
     <module>camel-quartz2</module>
     <module>camel-quickfix</module>
     <module>camel-rabbitmq</module>
+    <module>camel-reactive-streams</module>
     <module>camel-restlet</module>
-    <module>camel-ribbon</module>
     <module>camel-rmi</module>
     <module>camel-routebox</module>
     <module>camel-rss</module>
@@ -236,6 +247,7 @@
     <module>camel-splunk</module>
     <module>camel-spring-batch</module>
     <module>camel-spring-boot</module>
+    <module>camel-spring-cloud</module>
     <module>camel-spring-javaconfig</module>
     <module>camel-spring-integration</module>
     <module>camel-spring-ldap</module>
@@ -254,6 +266,7 @@
     <module>camel-tagsoup</module>
     <module>camel-tarfile</module>
     <module>camel-telegram</module>
+    <module>camel-tika</module>
     <module>camel-twitter</module>
     <module>camel-undertow</module>
     <module>camel-univocity-parsers</module>
@@ -332,14 +345,27 @@
           <version>${project.version}</version>
           <scope>provided</scope>
         </dependency>
-        <!-- enable Spring Boot configuration APT processor -->
-        <dependency>
-          <groupId>org.springframework.boot</groupId>
-          <artifactId>spring-boot-configuration-processor</artifactId>
-          <version>${spring-boot-version}</version>
-          <scope>provided</scope>
-        </dependency>
       </dependencies>
+    </profile>
+    <profile>
+      <id>validate</id>
+      <build>
+        <plugins>           
+          <!-- to validate Camel endpoints: mvn camel:validate -Pvalidate -->
+          <plugin>
+            <groupId>org.apache.camel</groupId>
+            <artifactId>camel-maven-plugin</artifactId>
+            <version>${project.version}</version>
+            <configuration>
+              <failOnError>false</failOnError>
+              <includeTest>true</includeTest>
+              <includeXml>true</includeXml>
+              <ignoreLenientProperties>false</ignoreLenientProperties>
+              <excludes>.*custom-exchange-formatter-context\.xml</excludes>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
     </profile>
   </profiles>
 

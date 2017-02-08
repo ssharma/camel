@@ -21,15 +21,19 @@
     <parent>
         <groupId>org.apache.camel</groupId>
         <artifactId>components</artifactId>
-        <version>2.18.0-SNAPSHOT</version>
+        <version>2.19.0-SNAPSHOT</version>
     </parent>
 
     <artifactId>camel-blueprint</artifactId>
     <name>Camel :: Blueprint</name>
-    <description>Camel OSGi Blueprint support</description>
+    <description>Using Camel with OSGi Blueprint</description>
     <packaging>jar</packaging>
 
     <properties>
+        <!-- use by camel-catalog -->
+        <firstVersion>2.4.0</firstVersion>
+        <label>java,osgi</label>
+
         <camel.osgi.import>
             !org.apache.camel.blueprint.*,
             !org.apache.camel.util.blueprint.*,

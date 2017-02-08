@@ -20,10 +20,12 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.stream.Collectors;
 
 import org.apache.camel.maven.packaging.model.ComponentModel;
 import org.apache.camel.maven.packaging.model.ComponentOptionModel;
@@ -46,7 +48,7 @@ import static org.apache.camel.maven.packaging.PackageHelper.writeText;
 import static org.apache.camel.maven.packaging.StringHelper.isEmpty;
 
 /**
- * Generate or updates the component/dataformat/language readme.md file in the project root directory.
+ * Generate or updates the component/dataformat/language readme.md and .adoc files in the project root directory.
  *
  * @goal update-readme
  */
@@ -76,6 +78,13 @@ public class ReadmeComponentMojo extends AbstractMojo {
     protected File docDir;
 
     /**
+     * Whether to fail the build fast if any Warnings was detected.
+     *
+     * @parameter
+     */
+    protected Boolean failFast;
+
+    /**
      * build context to check changed files and mark them for refresh (used for
      * m2e compatibility)
      *
@@ -83,13 +92,6 @@ public class ReadmeComponentMojo extends AbstractMojo {
      * @readonly
      */
     private BuildContext buildContext;
-
-    /**
-     * Whether to fail the build fast if any WARNINGS was detected.
-     *
-     * @parameter
-     */
-    protected Boolean failFast;
 
     @Override
     public void execute() throws MojoExecutionException, MojoFailureException {
@@ -129,7 +131,11 @@ public class ReadmeComponentMojo extends AbstractMojo {
                     }
 
                     boolean exists = file.exists();
-                    boolean updated = false;
+                    boolean updated;
+
+                    updated = updateTitles(file, model.getTitle() + " Component");
+                    updated |= updateAvailableFrom(file, model.getFirstVersion());
+
                     if (model.getComponentOptions() != null) {
                         String options = templateComponentOptions(model);
                         updated |= updateComponentOptions(file, options);
@@ -177,7 +183,11 @@ public class ReadmeComponentMojo extends AbstractMojo {
                     model.setTitle(title);
 
                     boolean exists = file.exists();
-                    boolean updated = false;
+                    boolean updated;
+
+                    updated = updateTitles(file, model.getTitle() + " DataFormat");
+                    updated |= updateAvailableFrom(file, model.getFirstVersion());
+
                     if (model.getDataFormatOptions() != null) {
                         String options = templateDataFormatOptions(model);
                         updated |= updateDataFormatOptions(file, options);
@@ -204,6 +214,49 @@ public class ReadmeComponentMojo extends AbstractMojo {
             return "mail";
         } else {
             return name;
+        }
+    }
+
+    private void executeLanguage() throws MojoExecutionException, MojoFailureException {
+        // find the language names
+        List<String> languageNames = findLanguageNames();
+
+        final Set<File> jsonFiles = new TreeSet<File>();
+        PackageHelper.findJsonFiles(buildDir, jsonFiles, new PackageHelper.CamelComponentsModelFilter());
+
+        // only if there is language we should update the documentation files
+        if (!languageNames.isEmpty()) {
+            getLog().debug("Found " + languageNames.size() + " languages");
+            for (String languageName : languageNames) {
+                String json = loadLanguageJson(jsonFiles, languageName);
+                if (json != null) {
+                    File file = new File(docDir, languageName + "-language.adoc");
+
+                    LanguageModel model = generateLanguageModel(languageName, json);
+
+                    boolean exists = file.exists();
+                    boolean updated;
+
+                    updated = updateTitles(file, model.getTitle() + " Language");
+                    updated |= updateAvailableFrom(file, model.getFirstVersion());
+
+                    if (model.getLanguageOptions() != null) {
+                        String options = templateLanguageOptions(model);
+                        updated |= updateLanguageOptions(file, options);
+                    }
+
+                    if (updated) {
+                        getLog().info("Updated doc file: " + file);
+                    } else if (exists) {
+                        getLog().debug("No changes to doc file: " + file);
+                    } else {
+                        getLog().warn("No language doc file: " + file);
+                        if (isFailFast()) {
+                            throw new MojoExecutionException("Failed build due failFast=true");
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -234,43 +287,121 @@ public class ReadmeComponentMojo extends AbstractMojo {
         }
     }
 
-    private void executeLanguage() throws MojoExecutionException, MojoFailureException {
-        // find the language names
-        List<String> languageNames = findLanguageNames();
+    private boolean updateTitles(File file, String title) throws MojoExecutionException {
+        if (!file.exists()) {
+            return false;
+        }
 
-        final Set<File> jsonFiles = new TreeSet<File>();
-        PackageHelper.findJsonFiles(buildDir, jsonFiles, new PackageHelper.CamelComponentsModelFilter());
+        boolean updated = false;
 
-        // only if there is language we should update the documentation files
-        if (!languageNames.isEmpty()) {
-            getLog().debug("Found " + languageNames.size() + " languages");
-            for (String languageName : languageNames) {
-                String json = loadLanguageJson(jsonFiles, languageName);
-                if (json != null) {
-                    File file = new File(docDir, languageName + "-language.adoc");
+        try {
+            String text = loadText(new FileInputStream(file));
 
-                    LanguageModel model = generateLanguageModel(languageName, json);
+            List<String> newLines = new ArrayList<>();
 
-                    boolean exists = file.exists();
-                    boolean updated = false;
-                    if (model.getLanguageOptions() != null) {
-                        String options = templateLanguageOptions(model);
-                        updated |= updateLanguageOptions(file, options);
-                    }
+            String[] lines = text.split("\n");
+            for (int i = 0; i < lines.length; i++) {
+                String line = lines[i];
 
-                    if (updated) {
-                        getLog().info("Updated doc file: " + file);
-                    } else if (exists) {
-                        getLog().debug("No changes to doc file: " + file);
-                    } else {
-                        getLog().warn("No language doc file: " + file);
-                        if (isFailFast()) {
-                            throw new MojoExecutionException("Failed build due failFast=true");
+                if (i == 0) {
+                    // first line is the title to make the text less noisy we use level 2
+                    String newLine = "## " + title;
+                    newLines.add(newLine);
+                    updated = !line.equals(newLine);
+                    continue;
+                }
+
+                // use single line headers with # as level instead of the cumbersome adoc weird style
+                if (line.startsWith("^^^") || line.startsWith("~~~") || line.startsWith("+++")) {
+                    String level = line.startsWith("+++") ? "####" : "###";
+
+                    // transform legacy heading into new style
+                    int idx = newLines.size() - 1;
+                    String prev = newLines.get(idx);
+
+                    newLines.set(idx, level + " " + prev);
+
+                    // okay if 2nd-prev line is a [[title]] we need to remove that too
+                    // so we have nice clean sub titles
+                    idx = newLines.size() - 2;
+                    if (idx >= 0) {
+                        prev = newLines.get(idx);
+                        if (prev.startsWith("[[")) {
+                            // remove
+                            newLines.remove(idx);
                         }
                     }
+
+                    updated = true;
+                } else {
+                    // okay normal text so just add it
+                    newLines.add(line);
                 }
             }
+
+
+            if (updated) {
+                // build the new updated text
+                String newText = newLines.stream().collect(Collectors.joining("\n"));
+                writeText(file, newText);
+            }
+        } catch (Exception e) {
+            throw new MojoExecutionException("Error reading file " + file + " Reason: " + e, e);
         }
+
+        return updated;
+    }
+
+    private boolean updateAvailableFrom(File file, String firstVersion) throws MojoExecutionException {
+        if (firstVersion == null || !file.exists()) {
+            return false;
+        }
+
+        boolean updated = false;
+
+        try {
+            String text = loadText(new FileInputStream(file));
+
+            String[] lines = text.split("\n");
+
+            List<String> newLines = new ArrayList<>();
+
+            // copy over to all new lines
+            newLines.addAll(Arrays.asList(lines));
+
+            // check the first four lines
+            boolean title = lines[0].startsWith("##");
+            boolean empty = lines[1].trim().isEmpty();
+            boolean availableFrom = lines[2].trim().contains("Available as of") || lines[2].trim().contains("Available in");
+            boolean empty2 = lines[3].trim().isEmpty();
+
+            if (title && empty && availableFrom) {
+                String newLine = "*Available as of Camel version " + firstVersion + "*";
+                if (!newLine.equals(lines[2])) {
+                    newLines.set(2, newLine);
+                    updated = true;
+                }
+                if (!empty2) {
+                    newLines.add(3, "");
+                    updated = true;
+                }
+            } else if (!availableFrom) {
+                String newLine = "*Available as of Camel version " + firstVersion + "*";
+                newLines.add(2, newLine);
+                newLines.add(3, "");
+                updated = true;
+            }
+
+            if (updated) {
+                // build the new updated text
+                String newText = newLines.stream().collect(Collectors.joining("\n"));
+                writeText(file, newText);
+            }
+        } catch (Exception e) {
+            throw new MojoExecutionException("Error reading file " + file + " Reason: " + e, e);
+        }
+
+        return updated;
     }
 
     private boolean updateComponentOptions(File file, String changed) throws MojoExecutionException {
@@ -475,13 +606,14 @@ public class ReadmeComponentMojo extends AbstractMojo {
     private ComponentModel generateComponentModel(String componentName, String json) {
         List<Map<String, String>> rows = JSonSchemaHelper.parseJsonSchema("component", json, false);
 
-        ComponentModel component = new ComponentModel();
+        ComponentModel component = new ComponentModel(true);
         component.setScheme(JSonSchemaHelper.getSafeValue("scheme", rows));
         component.setSyntax(JSonSchemaHelper.getSafeValue("syntax", rows));
         component.setAlternativeSyntax(JSonSchemaHelper.getSafeValue("alternativeSyntax", rows));
         component.setAlternativeSchemes(JSonSchemaHelper.getSafeValue("alternativeSchemes", rows));
         component.setTitle(JSonSchemaHelper.getSafeValue("title", rows));
         component.setDescription(JSonSchemaHelper.getSafeValue("description", rows));
+        component.setFirstVersion(JSonSchemaHelper.getSafeValue("firstVersion", rows));
         component.setLabel(JSonSchemaHelper.getSafeValue("label", rows));
         component.setDeprecated(JSonSchemaHelper.getSafeValue("deprecated", rows));
         component.setConsumerOnly(JSonSchemaHelper.getSafeValue("consumerOnly", rows));
@@ -496,10 +628,20 @@ public class ReadmeComponentMojo extends AbstractMojo {
             ComponentOptionModel option = new ComponentOptionModel();
             option.setName(getSafeValue("name", row));
             option.setKind(getSafeValue("kind", row));
+            option.setGroup(getSafeValue("group", row));
+            option.setRequired(getSafeValue("required", row));
             option.setType(getSafeValue("type", row));
             option.setJavaType(getSafeValue("javaType", row));
+            option.setEnums(getSafeValue("enum", row));
             option.setDeprecated(getSafeValue("deprecated", row));
+            option.setSecret(getSafeValue("secret", row));
+            option.setDefaultValue(getSafeValue("defaultValue", row));
             option.setDescription(getSafeValue("description", row));
+            // lets put required in the description
+            if ("true".equals(option.getRequired())) {
+                String desc = "*Required* " + option.getDescription();
+                option.setDescription(desc);
+            }
             component.addComponentOption(option);
         }
 
@@ -516,6 +658,7 @@ public class ReadmeComponentMojo extends AbstractMojo {
             option.setPrefix(getSafeValue("prefix", row));
             option.setMultiValue(getSafeValue("multiValue", row));
             option.setDeprecated(getSafeValue("deprecated", row));
+            option.setSecret(getSafeValue("secret", row));
             option.setDefaultValue(getSafeValue("defaultValue", row));
             option.setDescription(getSafeValue("description", row));
             // lets put required in the description
@@ -537,6 +680,7 @@ public class ReadmeComponentMojo extends AbstractMojo {
         dataFormat.setModelName(JSonSchemaHelper.getSafeValue("modelName", rows));
         dataFormat.setName(JSonSchemaHelper.getSafeValue("name", rows));
         dataFormat.setDescription(JSonSchemaHelper.getSafeValue("description", rows));
+        dataFormat.setFirstVersion(JSonSchemaHelper.getSafeValue("firstVersion", rows));
         dataFormat.setLabel(JSonSchemaHelper.getSafeValue("label", rows));
         dataFormat.setDeprecated(JSonSchemaHelper.getSafeValue("deprecated", rows));
         dataFormat.setJavaType(JSonSchemaHelper.getSafeValue("javaType", rows));
@@ -582,6 +726,7 @@ public class ReadmeComponentMojo extends AbstractMojo {
         language.setModelName(JSonSchemaHelper.getSafeValue("modelName", rows));
         language.setName(JSonSchemaHelper.getSafeValue("name", rows));
         language.setDescription(JSonSchemaHelper.getSafeValue("description", rows));
+        language.setFirstVersion(JSonSchemaHelper.getSafeValue("firstVersion", rows));
         language.setLabel(JSonSchemaHelper.getSafeValue("label", rows));
         language.setDeprecated(JSonSchemaHelper.getSafeValue("deprecated", rows));
         language.setJavaType(JSonSchemaHelper.getSafeValue("javaType", rows));

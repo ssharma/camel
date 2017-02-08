@@ -30,6 +30,7 @@ import org.apache.camel.Message;
 import org.apache.camel.PollingConsumer;
 import org.apache.camel.Processor;
 import org.apache.camel.Producer;
+import org.apache.camel.http.common.cookie.CookieHandler;
 import org.apache.camel.impl.DefaultEndpoint;
 import org.apache.camel.spi.HeaderFilterStrategy;
 import org.apache.camel.spi.HeaderFilterStrategyAware;
@@ -47,7 +48,7 @@ import org.xnio.Options;
 /**
  * The undertow component provides HTTP-based endpoints for consuming and producing HTTP requests.
  */
-@UriEndpoint(scheme = "undertow", title = "Undertow", syntax = "undertow:httpURI",
+@UriEndpoint(firstVersion = "2.16.0", scheme = "undertow", title = "Undertow", syntax = "undertow:httpURI",
         consumerClass = UndertowConsumer.class, label = "http", lenientProperties = true)
 public class UndertowEndpoint extends DefaultEndpoint implements AsyncEndpoint, HeaderFilterStrategyAware {
 
@@ -83,6 +84,8 @@ public class UndertowEndpoint extends DefaultEndpoint implements AsyncEndpoint, 
     @UriParam(label = "consumer",
             description = "Specifies whether to enable HTTP OPTIONS for this Servlet consumer. By default OPTIONS is turned off.")
     private boolean optionsEnabled;
+    @UriParam(label = "producer")
+    private CookieHandler cookieHandler;
 
     public UndertowEndpoint(String uri, UndertowComponent component) throws URISyntaxException {
         super(uri, component);
@@ -287,6 +290,17 @@ public class UndertowEndpoint extends DefaultEndpoint implements AsyncEndpoint, 
      */
     public void setOptionsEnabled(boolean optionsEnabled) {
         this.optionsEnabled = optionsEnabled;
+    }
+
+    public CookieHandler getCookieHandler() {
+        return cookieHandler;
+    }
+
+    /**
+     * Configure a cookie handler to maintain a HTTP session
+     */
+    public void setCookieHandler(CookieHandler cookieHandler) {
+        this.cookieHandler = cookieHandler;
     }
 
     @Override

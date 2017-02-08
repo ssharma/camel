@@ -100,6 +100,7 @@ public interface Exchange {
     String CONTENT_ENCODING      = "Content-Encoding";
     String CONTENT_LENGTH        = "Content-Length";
     String CONTENT_TYPE          = "Content-Type";
+    String COOKIE_HANDLER        = "CamelCookieHandler";
     String CORRELATION_ID        = "CamelCorrelationId";
 
     String DATASET_INDEX             = "CamelDataSetIndex";
@@ -229,6 +230,9 @@ public interface Exchange {
     String XSLT_ERROR       = "CamelXsltError";
     String XSLT_FATAL_ERROR = "CamelXsltFatalError";
     String XSLT_WARNING     = "CamelXsltWarning";
+
+    String INPUT_TYPE  = "CamelInputType";
+    String OUTPUT_TYPE = "CamelOutputType";
 
     /**
      * Returns the {@link ExchangePattern} (MEP) of this exchange.

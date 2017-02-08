@@ -32,14 +32,14 @@ import org.slf4j.LoggerFactory;
 /**
  * The salesforce component is used for integrating Camel with the massive Salesforce API.
  */
-@UriEndpoint(scheme = "salesforce", title = "Salesforce", syntax = "salesforce:operationName:topicName", label = "api,cloud,crm", consumerClass = SalesforceConsumer.class)
+@UriEndpoint(firstVersion = "2.12.0", scheme = "salesforce", title = "Salesforce", syntax = "salesforce:operationName:topicName", label = "api,cloud,crm", consumerClass = SalesforceConsumer.class)
 public class SalesforceEndpoint extends DefaultEndpoint {
 
     private static final Logger LOG = LoggerFactory.getLogger(SalesforceEndpoint.class);
 
-    @UriPath
+    @UriPath(label = "producer", description = "The operation to use")
     private final OperationName operationName;
-    @UriPath
+    @UriPath(label = "consumer", description = "The name of the topic to use")
     private final String topicName;
     @UriParam
     private final SalesforceEndpointConfig config;

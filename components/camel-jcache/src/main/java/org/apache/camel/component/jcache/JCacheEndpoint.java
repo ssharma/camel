@@ -26,9 +26,9 @@ import org.apache.camel.spi.UriParam;
 import org.apache.camel.spi.UriPath;
 
 /**
- * Represents a JCache endpoint.
+ * The jcache component enables you to perform caching operations using JSR107/JCache as cache implementation.
  */
-@UriEndpoint(scheme = "jcache", title = "JCache", syntax = "jcache:cacheName", consumerClass = JCacheConsumer.class, label = "cache,datagrid,clustering")
+@UriEndpoint(firstVersion = "2.17.0", scheme = "jcache", title = "JCache", syntax = "jcache:cacheName", consumerClass = JCacheConsumer.class, label = "cache,datagrid,clustering")
 public class JCacheEndpoint extends DefaultEndpoint {
     @UriPath(description = "the cache name")
     @Metadata(required = "true")

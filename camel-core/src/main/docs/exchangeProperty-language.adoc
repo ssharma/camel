@@ -1,13 +1,11 @@
-[[ExchangeProperty-ExchangePropertyExpressionLanguage]]
-ExchangeProperty Expression Language
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+## ExchangeProperty Language
+
+*Available as of Camel version 2.0.0*
 
 The ExchangeProperty Expression Language allows you to extract values of
 named exchange properties.
 
-[[ExchangeProperty-Options]]
-Exchange Property Options
-^^^^^^^^^^^^^^^^^^^^^^^^^
+### Exchange Property Options
 
 // language options: START
 The ExchangeProperty language supports 1 options which are listed below.
@@ -23,9 +21,7 @@ The ExchangeProperty language supports 1 options which are listed below.
 {% endraw %}
 // language options: END
 
-[[ExchangeProperty-Exampleusage]]
-Example usage
-^^^^^^^^^^^^^
+### Example usage
 
 The recipientList element of the Spring DSL can utilize a
 exchangeProperty expression like:
@@ -64,8 +60,6 @@ call)
   from("direct:a").recipientList().exchangeProperty("myProperty");
 ------------------------------------------------------------------
 
-[[ExchangeProperty-Dependencies]]
-Dependencies
-^^^^^^^^^^^^
+### Dependencies
 
 The ExchangeProperty language is part of *camel-core*.

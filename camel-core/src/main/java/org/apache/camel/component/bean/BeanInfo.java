@@ -38,6 +38,7 @@ import org.apache.camel.Body;
 import org.apache.camel.CamelContext;
 import org.apache.camel.Exchange;
 import org.apache.camel.ExchangeException;
+import org.apache.camel.ExchangeProperties;
 import org.apache.camel.ExchangeProperty;
 import org.apache.camel.Expression;
 import org.apache.camel.Handler;
@@ -328,13 +329,18 @@ public class BeanInfo {
         }
 
         Set<Method> overrides = new HashSet<Method>();
-        Set<Method> bridges = new HashSet<Method>();
 
         // do not remove duplicates form class from the Java itself as they have some "duplicates" we need
         boolean javaClass = clazz.getName().startsWith("java.") || clazz.getName().startsWith("javax.");
         if (!javaClass) {
             // it may have duplicate methods already, even from declared or from interfaces + declared
             for (Method source : methods) {
+
+                // skip bridge methods in duplicate checks (as the bridge method is inserted by the compiler due to type erasure)
+                if (source.isBridge()) {
+                    continue;
+                }
+
                 for (Method target : methods) {
                     // skip ourselves
                     if (ObjectHelper.isOverridingMethod(source, target, true)) {
@@ -354,10 +360,15 @@ public class BeanInfo {
         if (Modifier.isPublic(clazz.getModifiers())) {
             // add additional interface methods
             List<Method> extraMethods = getInterfaceMethods(clazz);
-            for (Method target : extraMethods) {
-                for (Method source : methods) {
+            for (Method source : extraMethods) {
+                for (Method target : methods) {
                     if (ObjectHelper.isOverridingMethod(source, target, false)) {
-                        overrides.add(target);
+                        overrides.add(source);
+                    }
+                }
+                for (Method target : methodMap.keySet()) {
+                    if (ObjectHelper.isOverridingMethod(source, target, false)) {
+                        overrides.add(source);
                     }
                 }
             }
@@ -964,7 +975,9 @@ public class BeanInfo {
             ExchangeProperty propertyAnnotation = (ExchangeProperty)annotation;
             return ExpressionBuilder.exchangePropertyExpression(propertyAnnotation.value());
         } else if (annotation instanceof Properties) {
-            return ExpressionBuilder.propertiesExpression();
+            return ExpressionBuilder.exchangePropertiesExpression();
+        } else if (annotation instanceof ExchangeProperties) {
+            return ExpressionBuilder.exchangePropertiesExpression();
         } else if (annotation instanceof Header) {
             Header headerAnnotation = (Header)annotation;
             return ExpressionBuilder.headerExpression(headerAnnotation.value());
@@ -1196,7 +1209,7 @@ public class BeanInfo {
         }
 
         // sort the methods by name A..Z
-        Collections.sort(methods, new Comparator<MethodInfo>() {
+        methods.sort(new Comparator<MethodInfo>() {
             public int compare(MethodInfo o1, MethodInfo o2) {
                 return o1.getMethod().getName().compareTo(o2.getMethod().getName());
             }

@@ -35,13 +35,16 @@ import org.apache.camel.ShutdownRunningTask;
 import org.apache.camel.TypeConverterExists;
 import org.apache.camel.builder.RouteBuilder;
 import org.apache.camel.component.properties.PropertiesComponent;
+import org.apache.camel.component.properties.PropertiesLocation;
 import org.apache.camel.core.xml.AbstractCamelContextFactoryBean;
+import org.apache.camel.core.xml.AbstractCamelFactoryBean;
 import org.apache.camel.core.xml.CamelJMXAgentDefinition;
 import org.apache.camel.core.xml.CamelPropertyPlaceholderDefinition;
 import org.apache.camel.core.xml.CamelProxyFactoryDefinition;
 import org.apache.camel.core.xml.CamelServiceExporterDefinition;
 import org.apache.camel.core.xml.CamelStreamCachingStrategyDefinition;
 import org.apache.camel.model.ContextScanDefinition;
+import org.apache.camel.model.GlobalOptionsDefinition;
 import org.apache.camel.model.HystrixConfigurationDefinition;
 import org.apache.camel.model.InterceptDefinition;
 import org.apache.camel.model.InterceptFromDefinition;
@@ -55,14 +58,11 @@ import org.apache.camel.model.RouteBuilderDefinition;
 import org.apache.camel.model.RouteContextRefDefinition;
 import org.apache.camel.model.RouteDefinition;
 import org.apache.camel.model.ThreadPoolProfileDefinition;
+import org.apache.camel.model.cloud.ServiceCallConfigurationDefinition;
 import org.apache.camel.model.dataformat.DataFormatsDefinition;
-import org.apache.camel.model.remote.ConsulConfigurationDefinition;
-import org.apache.camel.model.remote.DnsConfigurationDefinition;
-import org.apache.camel.model.remote.EtcdConfigurationDefinition;
-import org.apache.camel.model.remote.KubernetesConfigurationDefinition;
-import org.apache.camel.model.remote.RibbonConfigurationDefinition;
 import org.apache.camel.model.rest.RestConfigurationDefinition;
 import org.apache.camel.model.rest.RestDefinition;
+import org.apache.camel.model.transformer.TransformersDefinition;
 import org.apache.camel.spi.Metadata;
 import org.apache.camel.spi.PackageScanFilter;
 import org.apache.camel.spi.Registry;
@@ -139,8 +139,11 @@ public class CamelContextFactoryBean extends AbstractCamelContextFactoryBean<Spr
     private TypeConverterExists typeConverterExists;
     @XmlAttribute @Metadata(defaultValue = "WARN")
     private LoggingLevel typeConverterExistsLoggingLevel;
+    @Deprecated
     @XmlElement(name = "properties")
     private PropertiesDefinition properties;
+    @XmlElement(name = "globalOptions")
+    private GlobalOptionsDefinition globalOptions;
     @XmlElement(name = "propertyPlaceholder", type = CamelPropertyPlaceholderDefinition.class)
     private CamelPropertyPlaceholderDefinition camelPropertyPlaceholder;
     @XmlElement(name = "package")
@@ -154,19 +157,19 @@ public class CamelContextFactoryBean extends AbstractCamelContextFactoryBean<Spr
     @XmlElement(name = "jmxAgent", type = CamelJMXAgentDefinition.class)
     private CamelJMXAgentDefinition camelJMXAgent;
     @XmlElements({
-            @XmlElement(name = "hystrixConfiguration", type = HystrixConfigurationDefinition.class),
-            @XmlElement(name = "consulConfiguration", type = ConsulConfigurationDefinition.class),
-            @XmlElement(name = "dnsConfiguration", type = DnsConfigurationDefinition.class),
-            @XmlElement(name = "etcdConfiguration", type = EtcdConfigurationDefinition.class),
-            @XmlElement(name = "kubernetesConfiguration", type = KubernetesConfigurationDefinition.class),
-            @XmlElement(name = "ribbonConfiguration", type = RibbonConfigurationDefinition.class),
             @XmlElement(name = "template", type = CamelProducerTemplateFactoryBean.class),
             @XmlElement(name = "fluentTemplate", type = CamelFluentProducerTemplateFactoryBean.class),
-            @XmlElement(name = "consumerTemplate", type = CamelConsumerTemplateFactoryBean.class),
-            @XmlElement(name = "proxy", type = CamelProxyFactoryDefinition.class),
-            @XmlElement(name = "export", type = CamelServiceExporterDefinition.class),
-            @XmlElement(name = "errorHandler", type = ErrorHandlerDefinition.class)})
+            @XmlElement(name = "consumerTemplate", type = CamelConsumerTemplateFactoryBean.class)})
+    private List<AbstractCamelFactoryBean<?>> beansFactory;
+    @XmlElements({
+        @XmlElement(name = "proxy", type = CamelProxyFactoryDefinition.class),
+        @XmlElement(name = "export", type = CamelServiceExporterDefinition.class),
+        @XmlElement(name = "errorHandler", type = ErrorHandlerDefinition.class) })
     private List<?> beans;
+    @XmlElement(name = "serviceCallConfiguration", type = ServiceCallConfigurationDefinition.class)
+    private List<ServiceCallConfigurationDefinition> serviceCallConfigurations;
+    @XmlElement(name = "hystrixConfiguration", type = HystrixConfigurationDefinition.class)
+    private List<HystrixConfigurationDefinition> hystrixConfigurations;
     @XmlElement(name = "routeBuilder")
     private List<RouteBuilderDefinition> builderRefs = new ArrayList<RouteBuilderDefinition>();
     @XmlElement(name = "routeContextRef")
@@ -181,6 +184,8 @@ public class CamelContextFactoryBean extends AbstractCamelContextFactoryBean<Spr
     private List<CamelEndpointFactoryBean> endpoints;
     @XmlElement(name = "dataFormats")
     private DataFormatsDefinition dataFormats;
+    @XmlElement(name = "transformers")
+    private TransformersDefinition transformers;
     @XmlElement(name = "redeliveryPolicyProfile")
     private List<CamelRedeliveryPolicyFactoryBean> redeliveryPolicies;
     @XmlElement(name = "onException")
@@ -312,21 +317,15 @@ public class CamelContextFactoryBean extends AbstractCamelContextFactoryBean<Spr
             // replace existing resolver with us
             configurer.setResolver(pc.getPropertiesResolver());
             configurer.setParser(pc.getPropertiesParser());
-            String ref = "ref:" + id;
             // use the bridge to handle the resolve and parsing
             pc.setPropertiesResolver(configurer);
             pc.setPropertiesParser(configurer);
+
             // and update locations to have our as ref first
-            String[] locations = pc.getLocations();
-            String[] updatedLocations;
-            if (locations != null && locations.length > 0) {
-                updatedLocations = new String[locations.length + 1];
-                updatedLocations[0] = ref;
-                System.arraycopy(locations, 0, updatedLocations, 1, locations.length);
-            } else {
-                updatedLocations = new String[]{ref};
-            }
-            pc.setLocations(updatedLocations);
+            List<PropertiesLocation> locations = new ArrayList<>(pc.getLocations());
+            locations.add(0, new PropertiesLocation("ref", id));
+
+            pc.setLocations(locations);
         } else if (beans.size() > 1) {
             LOG.warn("Cannot bridge Camel and Spring property placeholders, as exact only 1 bean of type BridgePropertyPlaceholderConfigurer"
                     + " must be defined, was {} beans defined.", beans.size());
@@ -500,15 +499,33 @@ public class CamelContextFactoryBean extends AbstractCamelContextFactoryBean<Spr
         this.interceptSendToEndpoints = interceptSendToEndpoints;
     }
 
+    @Deprecated
     public PropertiesDefinition getProperties() {
         return properties;
     }
 
+    @Override
+    public GlobalOptionsDefinition getGlobalOptions() {
+        return globalOptions;
+    }
+
     /**
-     * Configuration of CamelContext properties such as limit of debug logging and other general options.
+     * Configuration of CamelContext properties such as limit of debug logging
+     * and other general options.
+     * 
+     * @deprecated Use {@link GlobalOptionsDefinition} instead.
      */
+    @Deprecated
     public void setProperties(PropertiesDefinition properties) {
         this.properties = properties;
+    }
+
+    /**
+     * Configuration of CamelContext properties such as limit of debug logging
+     * and other general options.
+     */
+    public void setGlobalOptions(GlobalOptionsDefinition globalOptions) {
+        this.globalOptions = globalOptions;
     }
 
     public String[] getPackages() {
@@ -880,12 +897,36 @@ public class CamelContextFactoryBean extends AbstractCamelContextFactoryBean<Spr
     }
 
     /**
+     * Configuration of transformers.
+     */
+    public void setTransformers(TransformersDefinition transformers) {
+        this.transformers = transformers;
+    }
+
+    public TransformersDefinition getTransformers() {
+        return transformers;
+    }
+
+    /**
      * Configuration of redelivery settings.
      */
     public void setRedeliveryPolicies(List<CamelRedeliveryPolicyFactoryBean> redeliveryPolicies) {
         this.redeliveryPolicies = redeliveryPolicies;
     }
 
+    @Override
+    public List<AbstractCamelFactoryBean<?>> getBeansFactory() {
+        return beansFactory;
+    }
+
+    /**
+     * Miscellaneous configurations
+     */
+    public void setBeansFactory(List<AbstractCamelFactoryBean<?>> beansFactory) {
+        this.beansFactory = beansFactory;
+    }
+
+    @Override
     public List<?> getBeans() {
         return beans;
     }
@@ -895,6 +936,30 @@ public class CamelContextFactoryBean extends AbstractCamelContextFactoryBean<Spr
      */
     public void setBeans(List<?> beans) {
         this.beans = beans;
+    }
+
+    @Override
+    public List<ServiceCallConfigurationDefinition> getServiceCallConfigurations() {
+        return serviceCallConfigurations;
+    }
+
+    /**
+     * ServiceCall configurations
+     */
+    public void setServiceCallConfigurations(List<ServiceCallConfigurationDefinition> serviceCallConfigurations) {
+        this.serviceCallConfigurations = serviceCallConfigurations;
+    }
+
+    @Override
+    public List<HystrixConfigurationDefinition> getHystrixConfigurations() {
+        return hystrixConfigurations;
+    }
+
+    /**
+     * hystrix configurations
+     */
+    public void setHystrixConfigurations(List<HystrixConfigurationDefinition> hystrixConfigurations) {
+        this.hystrixConfigurations = hystrixConfigurations;
     }
 
     /**
@@ -981,5 +1046,4 @@ public class CamelContextFactoryBean extends AbstractCamelContextFactoryBean<Spr
     public void setImplicitId(boolean flag) {
         implicitId = flag;
     }
-
 }

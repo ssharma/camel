@@ -23,6 +23,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 import org.apache.camel.CamelContext;
 import org.apache.camel.Component;
@@ -154,7 +155,7 @@ public abstract class GenericFileEndpoint<T> extends ScheduledPollEndpoint imple
     protected Comparator<Exchange> sortBy;
     @UriParam(label = "consumer,sort")
     protected boolean shuffle;
-    @UriParam(label = "consumer,lock", enums = "none,markerFile,fileLock,rename,changed,idempotent")
+    @UriParam(label = "consumer,lock", enums = "none,markerFile,fileLock,rename,changed,idempotent,idempotent-changed,idempotent-rename")
     protected String readLock = "none";
     @UriParam(label = "consumer,lock", defaultValue = "1000")
     protected long readLockCheckInterval = 1000;
@@ -178,6 +179,9 @@ public abstract class GenericFileEndpoint<T> extends ScheduledPollEndpoint imple
     protected GenericFileExclusiveReadLockStrategy<T> exclusiveReadLockStrategy;
     @UriParam(label = "consumer,advanced")
     protected ExceptionHandler onCompletionExceptionHandler;
+
+    private Pattern includePattern;
+    private Pattern excludePattern;
 
     public GenericFileEndpoint() {
     }
@@ -336,7 +340,7 @@ public abstract class GenericFileEndpoint<T> extends ScheduledPollEndpoint imple
     }
 
     /**
-     * Is used to include files, if filename matches the regex pattern (matching is case in-senstive).
+     * Is used to include files, if filename matches the regex pattern (matching is case in-sensitive).
      * <p/>
      * Notice if you use symbols such as plus sign and others you would need to configure
      * this using the RAW() syntax if configuring this as an endpoint uri.
@@ -344,6 +348,11 @@ public abstract class GenericFileEndpoint<T> extends ScheduledPollEndpoint imple
      */
     public void setInclude(String include) {
         this.include = include;
+        this.includePattern = Pattern.compile(include, Pattern.CASE_INSENSITIVE);
+    }
+
+    public Pattern getIncludePattern() {
+        return includePattern;
     }
 
     public String getExclude() {
@@ -359,6 +368,11 @@ public abstract class GenericFileEndpoint<T> extends ScheduledPollEndpoint imple
      */
     public void setExclude(String exclude) {
         this.exclude = exclude;
+        this.excludePattern = Pattern.compile(exclude, Pattern.CASE_INSENSITIVE);
+    }
+
+    public Pattern getExcludePattern() {
+        return this.excludePattern;
     }
 
     public String getAntInclude() {
@@ -795,6 +809,10 @@ public abstract class GenericFileEndpoint<T> extends ScheduledPollEndpoint imple
      *     a remote file system via a mount/share unless that file system supports distributed file locks.</li>
      *     <li>rename - rename is for using a try to rename the file as a test if we can get exclusive read-lock.</li>
      *     <li>idempotent - (only for file component) idempotent is for using a idempotentRepository as the read-lock.
+     *     This allows to use read locks that supports clustering if the idempotent repository implementation supports that.</li>
+     *     <li>idempotent-changed - (only for file component) idempotent-changed is for using a idempotentRepository and changed as the combined read-lock.
+     *     This allows to use read locks that supports clustering if the idempotent repository implementation supports that.</li>
+     *     <li>idempotent-rename - (only for file component) idempotent-rename is for using a idempotentRepository and rename as the combined read-lock.
      *     This allows to use read locks that supports clustering if the idempotent repository implementation supports that.</li>
      * </ul>
      * Notice: The various read locks is not all suited to work in clustered mode, where concurrent consumers on different nodes is competing
@@ -1247,7 +1265,7 @@ public abstract class GenericFileEndpoint<T> extends ScheduledPollEndpoint imple
         if (readLock != null) {
             params.put("readLock", readLock);
         }
-        if ("idempotent".equals(readLock)) {
+        if ("idempotent".equals(readLock) || "idempotent-changed".equals(readLock) || "idempotent-rename".equals(readLock)) {
             params.put("readLockIdempotentRepository", idempotentRepository);
         }
         if (readLockCheckInterval > 0) {

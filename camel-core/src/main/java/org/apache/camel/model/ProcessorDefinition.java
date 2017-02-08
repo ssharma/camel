@@ -46,15 +46,16 @@ import org.apache.camel.Predicate;
 import org.apache.camel.Processor;
 import org.apache.camel.Route;
 import org.apache.camel.builder.DataFormatClause;
+import org.apache.camel.builder.EnrichClause;
 import org.apache.camel.builder.ExpressionBuilder;
 import org.apache.camel.builder.ExpressionClause;
 import org.apache.camel.builder.ProcessClause;
 import org.apache.camel.builder.ProcessorBuilder;
+import org.apache.camel.model.cloud.ServiceCallDefinition;
 import org.apache.camel.model.language.ConstantExpression;
 import org.apache.camel.model.language.ExpressionDefinition;
 import org.apache.camel.model.language.LanguageExpression;
 import org.apache.camel.model.language.SimpleExpression;
-import org.apache.camel.model.remote.ServiceCallDefinition;
 import org.apache.camel.model.rest.RestDefinition;
 import org.apache.camel.processor.InterceptEndpointProcessor;
 import org.apache.camel.processor.Pipeline;
@@ -64,6 +65,7 @@ import org.apache.camel.processor.interceptor.Delayer;
 import org.apache.camel.processor.interceptor.HandleFault;
 import org.apache.camel.processor.interceptor.StreamCaching;
 import org.apache.camel.processor.loadbalancer.LoadBalancer;
+import org.apache.camel.spi.AsPredicate;
 import org.apache.camel.spi.DataFormat;
 import org.apache.camel.spi.IdAware;
 import org.apache.camel.spi.IdempotentRepository;
@@ -260,6 +262,10 @@ public abstract class ProcessorDefinition<Type extends ProcessorDefinition<Type>
     }
 
     protected Processor wrapChannel(RouteContext routeContext, Processor processor, ProcessorDefinition<?> child) throws Exception {
+        return wrapChannel(routeContext, processor, child, isInheritErrorHandler());
+    }
+
+    protected Processor wrapChannel(RouteContext routeContext, Processor processor, ProcessorDefinition<?> child, Boolean inheritErrorHandler) throws Exception {
         // put a channel in between this and each output to control the route flow logic
         ModelChannel channel = createChannel(routeContext);
         channel.setNextProcessor(processor);
@@ -299,13 +305,13 @@ public abstract class ProcessorDefinition<Type extends ProcessorDefinition<Type>
             boolean isShareUnitOfWork = def.getShareUnitOfWork() != null && def.getShareUnitOfWork();
             if (isShareUnitOfWork && child == null) {
                 // only wrap the parent (not the children of the multicast)
-                wrapChannelInErrorHandler(channel, routeContext);
+                wrapChannelInErrorHandler(channel, routeContext, inheritErrorHandler);
             } else {
                 log.trace("{} is part of multicast which have special error handling so no error handler is applied", defn);
             }
         } else {
             // use error handler by default or if configured to do so
-            wrapChannelInErrorHandler(channel, routeContext);
+            wrapChannelInErrorHandler(channel, routeContext, inheritErrorHandler);
         }
 
         // do post init at the end
@@ -318,12 +324,13 @@ public abstract class ProcessorDefinition<Type extends ProcessorDefinition<Type>
     /**
      * Wraps the given channel in error handler (if error handler is inherited)
      *
-     * @param channel       the channel
-     * @param routeContext  the route context
+     * @param channel             the channel
+     * @param routeContext        the route context
+     * @param inheritErrorHandler whether to inherit error handler
      * @throws Exception can be thrown if failed to create error handler builder
      */
-    private void wrapChannelInErrorHandler(Channel channel, RouteContext routeContext) throws Exception {
-        if (isInheritErrorHandler() == null || isInheritErrorHandler()) {
+    private void wrapChannelInErrorHandler(Channel channel, RouteContext routeContext, Boolean inheritErrorHandler) throws Exception {
+        if (inheritErrorHandler == null || inheritErrorHandler) {
             log.trace("{} is configured to inheritErrorHandler", this);
             Processor output = channel.getOutput();
             Processor errorHandler = wrapInErrorHandler(routeContext, output);
@@ -660,7 +667,6 @@ public abstract class ProcessorDefinition<Type extends ProcessorDefinition<Type>
      *
      * @return the builder
      */
-    @SuppressWarnings("unchecked")
     public ServiceCallDefinition serviceCall() {
         ServiceCallDefinition answer = new ServiceCallDefinition();
         addOutput(answer);
@@ -1163,7 +1169,10 @@ public abstract class ProcessorDefinition<Type extends ProcessorDefinition<Type>
      * @return the builder
      */
     public Type pipeline(String... uris) {
-        return to(uris);
+        PipelineDefinition answer = new PipelineDefinition();
+        addOutput(answer);
+        answer.to(uris);
+        return (Type) this;
     }
 
     /**
@@ -1176,7 +1185,10 @@ public abstract class ProcessorDefinition<Type extends ProcessorDefinition<Type>
      * @return the builder
      */
     public Type pipeline(Endpoint... endpoints) {
-        return to(endpoints);
+        PipelineDefinition answer = new PipelineDefinition();
+        addOutput(answer);
+        answer.to(endpoints);
+        return (Type) this;
     }
 
     /**
@@ -1189,7 +1201,10 @@ public abstract class ProcessorDefinition<Type extends ProcessorDefinition<Type>
      * @return the builder
      */
     public Type pipeline(Collection<Endpoint> endpoints) {
-        return to(endpoints);
+        PipelineDefinition answer = new PipelineDefinition();
+        addOutput(answer);
+        answer.to(endpoints);
+        return (Type) this;
     }
 
     /**
@@ -1375,6 +1390,24 @@ public abstract class ProcessorDefinition<Type extends ProcessorDefinition<Type>
     }
 
     /**
+     * Ends the current block and returns back to the {@link HystrixDefinition hystrix()} DSL.
+     *
+     * @return the builder
+     */
+    public HystrixDefinition endHystrix() {
+        ProcessorDefinition<?> def = this;
+
+        // are we already a try?
+        if (def instanceof HystrixDefinition) {
+            return (HystrixDefinition) def;
+        }
+
+        // okay end this and get back to the try
+        def = end();
+        return (HystrixDefinition) def;
+    }
+
+    /**
      * <a href="http://camel.apache.org/idempotent-consumer.html">Idempotent consumer EIP:</a>
      * Creates an {@link org.apache.camel.processor.idempotent.IdempotentConsumer IdempotentConsumer}
      * to avoid duplicate messages
@@ -1428,6 +1461,7 @@ public abstract class ProcessorDefinition<Type extends ProcessorDefinition<Type>
      *
      * @return the clause used to create the filter expression
      */
+    @AsPredicate
     public ExpressionClause<? extends FilterDefinition> filter() {
         FilterDefinition filter = new FilterDefinition();
         addOutput(filter);
@@ -1442,7 +1476,7 @@ public abstract class ProcessorDefinition<Type extends ProcessorDefinition<Type>
      * @param predicate  predicate to use
      * @return the builder 
      */
-    public FilterDefinition filter(Predicate predicate) {
+    public FilterDefinition filter(@AsPredicate Predicate predicate) {
         FilterDefinition filter = new FilterDefinition(predicate);
         addOutput(filter);
         return filter;
@@ -1456,7 +1490,7 @@ public abstract class ProcessorDefinition<Type extends ProcessorDefinition<Type>
      * @param expression  the predicate expression to use
      * @return the builder
      */
-    public FilterDefinition filter(ExpressionDefinition expression) {
+    public FilterDefinition filter(@AsPredicate ExpressionDefinition expression) {
         FilterDefinition filter = new FilterDefinition(expression);
         addOutput(filter);
         return filter;
@@ -1471,7 +1505,7 @@ public abstract class ProcessorDefinition<Type extends ProcessorDefinition<Type>
      * @param expression   the expression
      * @return the builder
      */
-    public FilterDefinition filter(String language, String expression) {
+    public FilterDefinition filter(String language, @AsPredicate String expression) {
         return filter(new LanguageExpression(language, expression));
     }
     
@@ -1483,7 +1517,7 @@ public abstract class ProcessorDefinition<Type extends ProcessorDefinition<Type>
      * @param expression  the expression
      * @return the builder
      */
-    public ValidateDefinition validate(Expression expression) {
+    public ValidateDefinition validate(@AsPredicate Expression expression) {
         ValidateDefinition answer = new ValidateDefinition(expression);
         addOutput(answer);
         return answer;
@@ -1497,7 +1531,7 @@ public abstract class ProcessorDefinition<Type extends ProcessorDefinition<Type>
      * @param predicate  the predicate
      * @return the builder
      */
-    public ValidateDefinition validate(Predicate predicate) {
+    public ValidateDefinition validate(@AsPredicate Predicate predicate) {
         ValidateDefinition answer = new ValidateDefinition(predicate);
         addOutput(answer);
         return answer;
@@ -1510,6 +1544,7 @@ public abstract class ProcessorDefinition<Type extends ProcessorDefinition<Type>
      *
      * @return the builder
      */
+    @AsPredicate
     public ExpressionClause<ValidateDefinition> validate() {
         ValidateDefinition answer = new ValidateDefinition();
         addOutput(answer);
@@ -2204,7 +2239,7 @@ public abstract class ProcessorDefinition<Type extends ProcessorDefinition<Type>
      * @param predicate the while loop predicate
      * @return the builder
      */
-    public LoopDefinition loopDoWhile(Predicate predicate) {
+    public LoopDefinition loopDoWhile(@AsPredicate Predicate predicate) {
         LoopDefinition loop = new LoopDefinition(predicate);
         addOutput(loop);
         return loop;
@@ -2670,7 +2705,6 @@ public abstract class ProcessorDefinition<Type extends ProcessorDefinition<Type>
      *
      * @return the builder
      */
-    @SuppressWarnings("unchecked")
     public ProcessClause<ProcessorDefinition<Type>> process() {
         ProcessClause<ProcessorDefinition<Type>> clause = new ProcessClause<>(this);
         ProcessDefinition answer = new ProcessDefinition(clause);
@@ -3310,6 +3344,42 @@ public abstract class ProcessorDefinition<Type extends ProcessorDefinition<Type>
     }
 
     /**
+     * TODO: document
+     * Note: this is experimental and subject to changes in future releases.
+     *
+     * @return the builder
+     */
+    public EnrichClause<ProcessorDefinition<Type>> enrichWith(String resourceUri) {
+        EnrichClause<ProcessorDefinition<Type>> clause = new EnrichClause<>(this);
+        enrich(resourceUri, clause);
+        return clause;
+    }
+
+    /**
+     * TODO: document
+     * Note: this is experimental and subject to changes in future releases.
+     *
+     * @return the builder
+     */
+    public EnrichClause<ProcessorDefinition<Type>> enrichWith(String resourceUri, boolean aggregateOnException) {
+        EnrichClause<ProcessorDefinition<Type>> clause = new EnrichClause<>(this);
+        enrich(resourceUri, clause, aggregateOnException, false);
+        return clause;
+    }
+
+    /**
+     * TODO: document
+     * Note: this is experimental and subject to changes in future releases.
+     *
+     * @return the builder
+     */
+    public EnrichClause<ProcessorDefinition<Type>> enrichWith(String resourceUri, boolean aggregateOnException, boolean shareUnitOfWork) {
+        EnrichClause<ProcessorDefinition<Type>> clause = new EnrichClause<>(this);
+        enrich(resourceUri, clause, aggregateOnException, shareUnitOfWork);
+        return clause;
+    }
+
+    /**
      * The <a href="http://camel.apache.org/content-enricher.html">Content Enricher EIP</a>
      * enriches an exchange with additional data obtained from a <code>resourceUri</code>.
      *
@@ -3444,7 +3514,6 @@ public abstract class ProcessorDefinition<Type extends ProcessorDefinition<Type>
      * @return the builder
      * @see org.apache.camel.processor.PollEnricher
      */
-    @SuppressWarnings("unchecked")
     public Type pollEnrich(String resourceUri) {
         return pollEnrich(resourceUri, null);
     }
@@ -3465,7 +3534,6 @@ public abstract class ProcessorDefinition<Type extends ProcessorDefinition<Type>
      * @return the builder
      * @see org.apache.camel.processor.PollEnricher
      */
-    @SuppressWarnings("unchecked")
     public Type pollEnrich(String resourceUri, AggregationStrategy aggregationStrategy) {
         return pollEnrich(resourceUri, -1, aggregationStrategy);
     }
@@ -3488,7 +3556,6 @@ public abstract class ProcessorDefinition<Type extends ProcessorDefinition<Type>
      * @return the builder
      * @see org.apache.camel.processor.PollEnricher
      */
-    @SuppressWarnings("unchecked")
     public Type pollEnrich(String resourceUri, long timeout, AggregationStrategy aggregationStrategy) {
         return pollEnrich(resourceUri, timeout, aggregationStrategy, false);
     }
@@ -3511,9 +3578,45 @@ public abstract class ProcessorDefinition<Type extends ProcessorDefinition<Type>
      * @return the builder
      * @see org.apache.camel.processor.PollEnricher
      */
-    @SuppressWarnings("unchecked")
     public Type pollEnrich(String resourceUri, long timeout, String aggregationStrategyRef) {
         return pollEnrich(resourceUri, timeout, aggregationStrategyRef, false);
+    }
+
+
+    /**
+     * TODO: document
+     * Note: this is experimental and subject to changes in future releases.
+     *
+     * @return the builder
+     */
+    public EnrichClause<ProcessorDefinition<Type>> pollEnrichWith(String resourceUri) {
+        EnrichClause<ProcessorDefinition<Type>> clause = new EnrichClause<>(this);
+        pollEnrich(resourceUri, -1, clause, false);
+        return clause;
+    }
+
+    /**
+     * TODO: document
+     * Note: this is experimental and subject to changes in future releases.
+     *
+     * @return the builder
+     */
+    public EnrichClause<ProcessorDefinition<Type>> pollEnrichWith(String resourceUri, long timeout) {
+        EnrichClause<ProcessorDefinition<Type>> clause = new EnrichClause<>(this);
+        pollEnrich(resourceUri, timeout, clause, false);
+        return clause;
+    }
+
+    /**
+     * TODO: document
+     * Note: this is experimental and subject to changes in future releases.
+     *
+     * @return the builder
+     */
+    public EnrichClause<ProcessorDefinition<Type>> pollEnrichWith(String resourceUri, long timeout, boolean aggregateOnException) {
+        EnrichClause<ProcessorDefinition<Type>> clause = new EnrichClause<>(this);
+        pollEnrich(resourceUri, timeout, clause, aggregateOnException);
+        return clause;
     }
 
     /**
@@ -3595,7 +3698,6 @@ public abstract class ProcessorDefinition<Type extends ProcessorDefinition<Type>
      * @return the builder
      * @see org.apache.camel.processor.PollEnricher
      */
-    @SuppressWarnings("unchecked")
     public Type pollEnrich(String resourceUri, long timeout) {
         return pollEnrich(resourceUri, timeout, (String) null);
     }

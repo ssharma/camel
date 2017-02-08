@@ -19,6 +19,7 @@ All examples have been sort by type/category
 * [camel-example-console](camel-example-console/README.md)
 * [camel-example-jmx](camel-example-jmx/README.md)
 * [camel-example-ftp](camel-example-ftp/README.md)
+* [camel-example-reload](camel-example-reload/Readme.md)
 * [camel-example-ssh](camel-example-ssh/README.md)
 * [camel-example-ssh-security](camel-example-ssh-security/README.md)
 
@@ -36,10 +37,17 @@ All examples have been sort by type/category
 
 ##### Tutorials
 
-* [camel-example-loan-broker](camel-example-loan-broker/README.md)
+* [camel-example-loan-broker-cxf](camel-example-loan-broker-cxf/README.md)
+* [camel-example-loan-broker-jms](camel-example-loan-broker-jms/README.md)
 * [camel-example-reportincident](camel-example-reportincident/README.md)
 * [camel-example-reportincident-wssecurity](camel-example-reportincident-wssecurity/README.md)
 * [camel-example-cafe](camel-example-cafe/README.md)
+
+##### Other Languages
+
+* [camel-example-groovy](camel-example-groovy/ReadMe.md)
+* [camel-example-kotlin](camel-example-kotlin/ReadMe.md)
+* [camel-example-scala](camel-example-scala/ReadMe.md)
 
 ##### CDI
 
@@ -77,6 +85,7 @@ All examples have been sort by type/category
 
 * [camel-example-box-osgi](camel-example-box-osgi/README.md)
 * [camel-example-simplejirabot](camel-example-simplejirabot/README.md)
+* [camel-example-twitter-salesforce](camel-example-twitter-salesforce/README.md)
 * [camel-example-twitter-websocket](camel-example-twitter-websocket/README.md)
 * [camel-example-twitter-websocket-blueprint](camel-example-twitter-websocket-blueprint/README.md)
 
@@ -118,6 +127,11 @@ All examples have been sort by type/category
 * [camel-example-cxf-osgi](camel-example-cxf-osgi/README.md)
 * [camel-example-cxf-proxy](camel-example-cxf-proxy/README.md)
 * [camel-example-cxf-tomcat](camel-example-cxf-tomcat/README.md)
+
+##### Input/Output type contract
+* [camel-example-transformer-blueprint](camel-example-transformer-blueprint/README.md)
+* [camel-example-transformer-cdi](camel-example-transformer-cdi/README.md)
+* [camel-example-transformer-demo](camel-example-transformer-demo/README.md)
 
 ### Documentation
 

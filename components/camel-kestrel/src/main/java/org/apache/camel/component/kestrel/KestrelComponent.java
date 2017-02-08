@@ -16,10 +16,8 @@
  */
 package org.apache.camel.component.kestrel;
 
-import java.net.InetSocketAddress;
 import java.net.URI;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 import net.spy.memcached.ConnectionFactory;
@@ -29,6 +27,7 @@ import net.spy.memcached.MemcachedClient;
 import org.apache.camel.CamelContext;
 import org.apache.camel.RuntimeCamelException;
 import org.apache.camel.impl.UriEndpointComponent;
+import org.apache.camel.spi.Metadata;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -39,13 +38,15 @@ import org.slf4j.LoggerFactory;
 public class KestrelComponent extends UriEndpointComponent {
     private static final Logger LOG = LoggerFactory.getLogger(KestrelComponent.class);
 
-    private KestrelConfiguration configuration;
     private ConnectionFactory memcachedConnectionFactory;
 
     /**
      * We cache the memcached clients by queue for reuse
      */
     private final Map<String, MemcachedClient> memcachedClientCache = new HashMap<String, MemcachedClient>();
+
+    @Metadata(label = "advanced")
+    private KestrelConfiguration configuration;
 
     public KestrelComponent() {
         this(new KestrelConfiguration());
@@ -204,41 +205,5 @@ public class KestrelComponent extends UriEndpointComponent {
         }
 
         super.doStop();
-    }
-
-    public String[] getAddresses() {
-        return configuration.getAddresses();
-    }
-
-    /**
-     * The addresses
-     * @param addresses
-     */
-    public void setAddresses(String[] addresses) {
-        configuration.setAddresses(addresses);
-    }
-
-    public int getWaitTimeMs() {
-        return configuration.getWaitTimeMs();
-    }
-
-    /**
-     * The wait time in milliseconds
-     * @param waitTimeMs
-     */
-    public void setWaitTimeMs(int waitTimeMs) {
-        configuration.setWaitTimeMs(waitTimeMs);
-    }
-
-    public int getConcurrentConsumers() {
-        return configuration.getConcurrentConsumers();
-    }
-
-    /**
-     * The number of concurrent consumers
-     * @param concurrentConsumers
-     */
-    public void setConcurrentConsumers(int concurrentConsumers) {
-        configuration.setConcurrentConsumers(concurrentConsumers);
     }
 }

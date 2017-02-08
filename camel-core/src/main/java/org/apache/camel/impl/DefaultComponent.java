@@ -44,6 +44,7 @@ import org.slf4j.LoggerFactory;
  */
 public abstract class DefaultComponent extends ServiceSupport implements Component {
     private static final Logger LOG = LoggerFactory.getLogger(DefaultComponent.class);
+    private static final Pattern RAW_PATTERN = Pattern.compile("RAW(.*&&.*)");
 
     private CamelContext camelContext;
 
@@ -56,16 +57,7 @@ public abstract class DefaultComponent extends ServiceSupport implements Compone
 
     @Deprecated
     protected String preProcessUri(String uri) {
-        // Give components a chance to preprocess URIs and migrate to URI syntax that discourages invalid URIs
-        // (see CAMEL-4425)
-        // check URI string to the unsafe URI characters
-        String encodedUri = UnsafeUriCharactersEncoder.encode(uri);
-        if (!encodedUri.equals(uri)) {
-            // uri supplied is not really valid
-            // we just don't want to log the password setting here
-            LOG.warn("Supplied URI '{}' contains unsafe characters, please check encoding", URISupport.sanitizeUri(uri));
-        }
-        return encodedUri;
+        return UnsafeUriCharactersEncoder.encode(uri);
     }
 
     public Endpoint createEndpoint(String uri) throws Exception {
@@ -73,7 +65,14 @@ public abstract class DefaultComponent extends ServiceSupport implements Compone
         // check URI string to the unsafe URI characters
         String encodedUri = preProcessUri(uri);
         URI u = new URI(encodedUri);
-        String path = URISupport.extractRemainderPath(u, useRawUri());
+        String path;
+        if (u.getScheme() != null) {
+            // if there is a scheme then there is also a path
+            path = URISupport.extractRemainderPath(u, useRawUri());
+        } else {
+            // this uri has no context-path as the leading text is the component name (scheme)
+            path = null;
+        }
 
         Map<String, Object> parameters;
         if (useRawUri()) {
@@ -198,8 +197,7 @@ public abstract class DefaultComponent extends ServiceSupport implements Compone
     protected void validateURI(String uri, String path, Map<String, Object> parameters) {
         // check for uri containing double && markers without include by RAW
         if (uri.contains("&&")) {
-            Pattern pattern = Pattern.compile("RAW(.*&&.*)");
-            Matcher m = pattern.matcher(uri);
+            Matcher m = RAW_PATTERN.matcher(uri);
             // we should skip the RAW part
             if (!m.find()) {
                 throw new ResolveEndpointFailedException(uri, "Invalid uri syntax: Double && marker found. "
@@ -388,15 +386,12 @@ public abstract class DefaultComponent extends ServiceSupport implements Compone
      * Resolves a reference list parameter in the registry and removes it from
      * the map.
      * 
-     * @param parameters
-     *            parameter map.
-     * @param key
-     *            parameter map key.
-     * @param elementType
-     *            result list element type.
+     * @param parameters parameter map.
+     * @param key parameter map key.
+     * @param elementType result list element type.
      * @return the list of referenced objects or an empty list if the parameter
      *         map doesn't contain the key.
-     * @throws IllegalArgumentException if any of the referenced objects was 
+     * @throws IllegalArgumentException if any of the referenced objects was
      *         not found in registry.
      * @see EndpointHelper#resolveReferenceListParameter(CamelContext, String, Class)
      */
@@ -408,14 +403,10 @@ public abstract class DefaultComponent extends ServiceSupport implements Compone
      * Resolves a reference list parameter in the registry and removes it from
      * the map.
      * 
-     * @param parameters
-     *            parameter map.
-     * @param key
-     *            parameter map key.
-     * @param elementType
-     *            result list element type.
-     * @param defaultValue
-     *            default value to use if the parameter map doesn't
+     * @param parameters parameter map.
+     * @param key parameter map key.
+     * @param elementType result list element type.
+     * @param defaultValue default value to use if the parameter map doesn't
      *            contain the key.
      * @return the list of referenced objects or the default value.
      * @throws IllegalArgumentException if any of the referenced objects was 

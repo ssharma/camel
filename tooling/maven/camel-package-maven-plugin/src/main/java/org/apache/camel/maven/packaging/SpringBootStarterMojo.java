@@ -18,6 +18,7 @@ package org.apache.camel.maven.packaging;
 
 import java.io.ByteArrayInputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
@@ -35,17 +36,20 @@ import java.util.TreeSet;
 import java.util.stream.Collectors;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.transform.OutputKeys;
+import javax.xml.transform.Transformer;
+import javax.xml.transform.TransformerFactory;
+import javax.xml.transform.dom.DOMSource;
+import javax.xml.transform.stream.StreamResult;
 import javax.xml.xpath.XPath;
 import javax.xml.xpath.XPathConstants;
+import javax.xml.xpath.XPathExpression;
 import javax.xml.xpath.XPathFactory;
 
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
-
-import com.sun.org.apache.xml.internal.serialize.OutputFormat;
-import com.sun.org.apache.xml.internal.serialize.XMLSerializer;
 
 import freemarker.cache.URLTemplateLoader;
 import freemarker.template.Configuration;
@@ -69,6 +73,7 @@ import org.apache.maven.shared.dependency.tree.DependencyTreeBuilder;
 import org.apache.maven.shared.dependency.tree.DependencyTreeBuilderException;
 import org.apache.maven.shared.dependency.tree.traversal.CollectingDependencyNodeVisitor;
 
+
 /**
  * Generate Spring Boot starter for the component
  *
@@ -77,10 +82,19 @@ import org.apache.maven.shared.dependency.tree.traversal.CollectingDependencyNod
 public class SpringBootStarterMojo extends AbstractMojo {
 
 
-    private static final String[] IGNORE_MODULES = {/* OSGi -> */ "camel-core-osgi", "camel-eventadmin", "camel-paxlogging",  /* deprecated (and not working perfectly) -> */"camel-swagger",
-        "camel-mina", /* others (not managed) -> */ "camel-zipkin"};
+    private static final String[] IGNORE_MODULES = {
+        /* OSGi -> */ "camel-blueprint", "camel-core-osgi", "camel-eventadmin", "camel-paxlogging",
+        /* Java EE -> */ "camel-cdi", "camel-ejb",
+        /* deprecated (and not working perfectly) -> */ "camel-swagger", "camel-mina", "camel-ibatis", "camel-quartz",
+        /* currently incompatible */ "camel-jclouds", "camel-spark-rest",
+        /* others (not managed) -> */ "camel-zipkin"};
 
     private static final boolean IGNORE_TEST_MODULES = true;
+
+    private static final String GENERATED_SECTION_START = "START OF GENERATED CODE";
+    private static final String GENERATED_SECTION_START_COMMENT = "<!--" + GENERATED_SECTION_START + "-->";
+    private static final String GENERATED_SECTION_END = "END OF GENERATED CODE";
+    private static final String GENERATED_SECTION_END_COMMENT = "<!--" + GENERATED_SECTION_END + "-->";
 
     /**
      * The maven project.
@@ -91,6 +105,12 @@ public class SpringBootStarterMojo extends AbstractMojo {
      */
     protected MavenProject project;
 
+    /**
+     * Allows using the existing pom.xml file if present.
+     *
+     * @parameter property="reuseExistingPom" default-value="true"
+     */
+    protected boolean reuseExistingPom;
 
     /**
      * The project directory
@@ -157,6 +177,7 @@ public class SpringBootStarterMojo extends AbstractMojo {
             // Apply changes to the starter pom
             fixExcludedDependencies(pom);
             fixAdditionalDependencies(pom);
+            fixAdditionalRepositories(pom);
 
             // Write the starter pom
             File pomFile = new File(starterDir, "pom.xml");
@@ -214,33 +235,65 @@ public class SpringBootStarterMojo extends AbstractMojo {
             XPath xpath = XPathFactory.newInstance().newXPath();
             Node dependencies = ((NodeList) xpath.compile("/project/dependencies").evaluate(pom, XPathConstants.NODESET)).item(0);
 
-            for (String dep : deps) {
-                Element dependency = pom.createElement("dependency");
-                dependencies.appendChild(dependency);
+            if (deps.size() > 0) {
+                dependencies.appendChild(pom.createComment(GENERATED_SECTION_START));
+                for (String dep : deps) {
+                    Element dependency = pom.createElement("dependency");
+                    dependencies.appendChild(dependency);
 
-                String[] comps = dep.split("\\:");
-                String groupIdStr = comps[0];
-                String artifactIdStr = comps[1];
-                String versionStr = comps.length > 2 ? comps[2] : null;
+                    String[] comps = dep.split("\\:");
+                    String groupIdStr = comps[0];
+                    String artifactIdStr = comps[1];
+                    String versionStr = comps.length > 2 ? comps[2] : null;
 
-                Element groupId = pom.createElement("groupId");
-                groupId.setTextContent(groupIdStr);
-                dependency.appendChild(groupId);
+                    Element groupId = pom.createElement("groupId");
+                    groupId.setTextContent(groupIdStr);
+                    dependency.appendChild(groupId);
 
-                Element artifactId = pom.createElement("artifactId");
-                artifactId.setTextContent(artifactIdStr);
-                dependency.appendChild(artifactId);
+                    Element artifactId = pom.createElement("artifactId");
+                    artifactId.setTextContent(artifactIdStr);
+                    dependency.appendChild(artifactId);
 
-                if (versionStr != null) {
-                    Element version = pom.createElement("version");
-                    version.setTextContent(versionStr);
-                    dependency.appendChild(version);
+                    if (versionStr != null) {
+                        Element version = pom.createElement("version");
+                        version.setTextContent(versionStr);
+                        dependency.appendChild(version);
+                    }
+
                 }
-
+                dependencies.appendChild(pom.createComment(GENERATED_SECTION_END));
             }
 
         }
 
+    }
+
+    private void fixAdditionalRepositories(Document pom) throws Exception {
+
+        if (project.getFile() != null) {
+            DocumentBuilder builder = DocumentBuilderFactory.newInstance().newDocumentBuilder();
+            Document originalPom = builder.parse(project.getFile());
+
+            XPath xpath = XPathFactory.newInstance().newXPath();
+            Node repositories = (Node) xpath.compile("/project/repositories").evaluate(originalPom, XPathConstants.NODE);
+            if (repositories != null) {
+                pom.getDocumentElement().appendChild(pom.createComment(GENERATED_SECTION_START));
+                pom.getDocumentElement().appendChild(pom.importNode(repositories, true));
+                pom.getDocumentElement().appendChild(pom.createComment(GENERATED_SECTION_END));
+            }
+        } else {
+            getLog().warn("Cannot access the project pom file to retrieve repositories");
+        }
+    }
+
+    private void appendTextElementIfPresent(Document pom, Element parent, String name, String value) {
+        if (value == null || value.length() == 0) {
+            return;
+        }
+        Element element = pom.createElement(name);
+        element.setTextContent(value);
+
+        parent.appendChild(element);
     }
 
     private Set<String> csvToSet(String csv) {
@@ -269,6 +322,7 @@ public class SpringBootStarterMojo extends AbstractMojo {
         loggingImpl.add("ch.qos.logback:logback-classic");
 
         loggingImpl.add("org.apache.logging.log4j:log4j");
+        loggingImpl.add("org.apache.logging.log4j:log4j-core");
         loggingImpl.add("org.apache.logging.log4j:log4j-slf4j-impl");
 
         loggingImpl.add("org.slf4j:slf4j-jcl");
@@ -305,7 +359,9 @@ public class SpringBootStarterMojo extends AbstractMojo {
 
             Element exclusions = pom.createElement("exclusions");
 
+            dependency.appendChild(pom.createComment(GENERATED_SECTION_START));
             dependency.appendChild(exclusions);
+            dependency.appendChild(pom.createComment(GENERATED_SECTION_END));
 
             for (String lib : libsToRemove) {
                 String groupIdStr = lib.split("\\:")[0];
@@ -369,7 +425,9 @@ public class SpringBootStarterMojo extends AbstractMojo {
             modules.removeChild(modules.getFirstChild());
         }
 
-        for (File starterDir : Arrays.asList(allStartersDir().listFiles((f, n) -> (new File(f, n)).isDirectory() && n.endsWith(SpringBootHelper.STARTER_SUFFIX))).stream().sorted()
+        for (File starterDir : Arrays
+                .asList(allStartersDir().listFiles((f, n) ->
+                        (new File(f, n)).isDirectory() && n.endsWith(SpringBootHelper.STARTER_SUFFIX) && (new File(new File(f, n), "pom.xml").exists()))).stream().sorted()
                 .collect(Collectors.toList())) {
             Node module = pom.createElement("module");
             module.setTextContent(starterDir.getName());
@@ -380,6 +438,63 @@ public class SpringBootStarterMojo extends AbstractMojo {
     }
 
     private Document createBasePom() throws Exception {
+        Document pom = null;
+        if (reuseExistingPom) {
+            pom = createBasePomFromExisting();
+        }
+        if (pom == null) {
+            pom = createBasePomFromScratch();
+        }
+
+        return pom;
+    }
+
+    private Document createBasePomFromExisting() {
+        try {
+            File pomFile = new File(starterDir(), "pom.xml");
+            if (pomFile.exists()) {
+                try (InputStream in = new FileInputStream(pomFile)) {
+                    String content = IOUtils.toString(in, "UTF-8");
+                    boolean editablePom = content.contains(GENERATED_SECTION_START_COMMENT);
+                    if (editablePom) {
+                        content = removeGeneratedSections(content, 10);
+                        DocumentBuilder builder = DocumentBuilderFactory.newInstance().newDocumentBuilder();
+
+                        Document pom;
+                        try (InputStream contentIn = new ByteArrayInputStream(content.getBytes("UTF-8"))) {
+                            pom = builder.parse(contentIn);
+                        }
+
+                        getLog().info("Reusing the existing pom.xml for the starter");
+                        return pom;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            getLog().warn("Cannot use the existing pom.xml file", e);
+        }
+
+        return null;
+    }
+
+    private String removeGeneratedSections(String pom, int maxNumber) {
+        if (maxNumber > 0 && pom.contains(GENERATED_SECTION_START_COMMENT)) {
+            int start = pom.indexOf(GENERATED_SECTION_START_COMMENT);
+            int end = pom.indexOf(GENERATED_SECTION_END_COMMENT);
+            if (end <= start) {
+                throw new IllegalArgumentException("Generated sections inside the xml document are not well-formed");
+            }
+
+            String newPom = pom.substring(0, start) + pom.substring(end + GENERATED_SECTION_END_COMMENT.length());
+            return removeGeneratedSections(newPom, maxNumber - 1);
+        }
+
+        return pom;
+    }
+
+    private Document createBasePomFromScratch() throws Exception {
+        getLog().info("Creating a new pom.xml for the starter from scratch");
+
         Template pomTemplate = getTemplate("spring-boot-starter-template-pom.template");
         Map<String, String> props = new HashMap<>();
         props.put("version", project.getVersion());
@@ -453,7 +568,7 @@ public class SpringBootStarterMojo extends AbstractMojo {
             }
         }
 
-        if (IGNORE_TEST_MODULES && project.getArtifactId().startsWith("camel-test-")) {
+        if (IGNORE_TEST_MODULES && (project.getArtifactId().startsWith("camel-test") || project.getArtifactId().startsWith("camel-testng"))) {
             getLog().debug("Test components are ignored");
             return false;
         }
@@ -484,37 +599,36 @@ public class SpringBootStarterMojo extends AbstractMojo {
         return componentId;
     }
 
-    private void writeXmlFormatted(Document xml, File destination) throws Exception {
+    private void writeXmlFormatted(Document pom, File destination) throws Exception {
+        XPathExpression xpath = XPathFactory.newInstance().newXPath().compile("//text()[normalize-space(.) = '']");
+        NodeList emptyNodes = (NodeList) xpath.evaluate(pom, XPathConstants.NODESET);
 
-        OutputFormat format = new OutputFormat(xml);
-        format.setLineWidth(200);
-        format.setIndenting(true);
-        format.setIndent(4);
-
-        StringWriter sw = new StringWriter();
-        XMLSerializer serializer = new XMLSerializer(sw, format);
-        serializer.serialize(xml);
-
-        // Fix the output (cannot find a good serializer)
-        // The apache header is put in the wrong location
-        StringBuilder b = new StringBuilder(sw.toString());
-        int lastTagLoc = b.lastIndexOf("<");
-        int lastCloseHeaderLoc = b.lastIndexOf("-->");
-        if (lastCloseHeaderLoc > lastTagLoc) {
-            // The apache header has been put at the end
-            int headerLoc = b.lastIndexOf("<!--");
-            String apacheHeader = b.substring(headerLoc, lastCloseHeaderLoc + 3);
-            b.delete(headerLoc, lastCloseHeaderLoc + 3);
-
-            int pos = b.indexOf("?>");
-            if (pos > 0) {
-                b.insert(pos + 2, "\n" + apacheHeader);
-            } else {
-                b.insert(0, apacheHeader);
-            }
+        // Remove empty text nodes
+        for (int i = 0; i < emptyNodes.getLength(); i++) {
+            Node emptyNode = emptyNodes.item(i);
+            emptyNode.getParentNode().removeChild(emptyNode);
         }
 
-        writeIfChanged(b.toString(), destination);
+        pom.setXmlStandalone(true);
+
+        Transformer transformer = TransformerFactory.newInstance().newTransformer();
+        transformer.setOutputProperty(OutputKeys.INDENT, "yes");
+        transformer.setOutputProperty(OutputKeys.METHOD, "xml");
+        transformer.setOutputProperty("{http://xml.apache.org/xslt}indent-amount", "2");
+
+        DOMSource source = new DOMSource(pom);
+
+        String content;
+        try (StringWriter out = new StringWriter()) {
+            StreamResult result = new StreamResult(out);
+            transformer.transform(source, result);
+            content = out.toString();
+        }
+
+        // Fix header formatting problem
+        content = content.replaceFirst("-->", "-->\n").replaceFirst("\\?><!--", "\\?>\n<!--");
+
+        writeIfChanged(content, destination);
     }
 
     private void writeIfChanged(String content, File file) throws IOException {

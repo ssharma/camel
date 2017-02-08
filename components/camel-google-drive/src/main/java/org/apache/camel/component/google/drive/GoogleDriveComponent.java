@@ -16,13 +16,12 @@
  */
 package org.apache.camel.component.google.drive;
 
-import java.util.List;
-
 import com.google.api.services.drive.Drive;
 import org.apache.camel.CamelContext;
 import org.apache.camel.Endpoint;
 import org.apache.camel.component.google.drive.internal.GoogleDriveApiCollection;
 import org.apache.camel.component.google.drive.internal.GoogleDriveApiName;
+import org.apache.camel.spi.Metadata;
 import org.apache.camel.util.component.AbstractApiComponent;
 
 /**
@@ -30,7 +29,9 @@ import org.apache.camel.util.component.AbstractApiComponent;
  */
 public class GoogleDriveComponent extends AbstractApiComponent<GoogleDriveApiName, GoogleDriveConfiguration, GoogleDriveApiCollection> {
 
+    @Metadata(label = "advanced")
     private Drive client;
+    @Metadata(label = "advanced")
     private GoogleDriveClientFactory clientFactory;
     
     public GoogleDriveComponent() {
@@ -46,10 +47,11 @@ public class GoogleDriveComponent extends AbstractApiComponent<GoogleDriveApiNam
         return GoogleDriveApiName.fromValue(apiNameStr);
     }
 
-    public Drive getClient() {
+    public Drive getClient(GoogleDriveConfiguration googleDriveConfiguration) {
         if (client == null) {
-            client = getClientFactory().makeClient(configuration.getClientId(), configuration.getClientSecret(), configuration.getScopes(), 
-                configuration.getApplicationName(), configuration.getRefreshToken(), configuration.getAccessToken());
+            client = getClientFactory().makeClient(googleDriveConfiguration.getClientId(), googleDriveConfiguration.getClientSecret(), 
+                    googleDriveConfiguration.getScopes(), googleDriveConfiguration.getApplicationName(), 
+                    googleDriveConfiguration.getRefreshToken(), googleDriveConfiguration.getAccessToken());
         }
         return client;
     }
@@ -62,7 +64,7 @@ public class GoogleDriveComponent extends AbstractApiComponent<GoogleDriveApiNam
     }
 
     /**
-     * To use the shared configuration. Properties of the shared configuration can also be set individually.
+     * To use the shared configuration
      */
     @Override
     public void setConfiguration(GoogleDriveConfiguration configuration) {
@@ -71,6 +73,9 @@ public class GoogleDriveComponent extends AbstractApiComponent<GoogleDriveApiNam
 
     @Override
     public GoogleDriveConfiguration getConfiguration() {
+        if (configuration == null) {
+            configuration = new GoogleDriveConfiguration();
+        }
         return super.getConfiguration();
     }
 
@@ -90,109 +95,5 @@ public class GoogleDriveComponent extends AbstractApiComponent<GoogleDriveApiNam
         GoogleDriveEndpoint endpoint = new GoogleDriveEndpoint(uri, this, apiName, methodName, endpointConfiguration);
         endpoint.setClientFactory(clientFactory);
         return endpoint;
-    }
-
-
-    private GoogleDriveConfiguration getConfigurationOrCreate() {
-        if (this.getConfiguration() == null) {
-            this.setConfiguration(new GoogleDriveConfiguration());
-        }
-        return this.getConfiguration();
-    }
-
-    public GoogleDriveApiName getApiName() {
-        return getConfigurationOrCreate().getApiName();
-    }
-
-    /**
-     * What kind of operation to perform
-     * @param apiName
-     */
-    public void setApiName(GoogleDriveApiName apiName) {
-        getConfigurationOrCreate().setApiName(apiName);
-    }
-
-    public String getMethodName() {
-        return getConfigurationOrCreate().getMethodName();
-    }
-
-    /**
-     * What sub operation to use for the selected operation
-     * @param methodName
-     */
-    public void setMethodName(String methodName) {
-        getConfigurationOrCreate().setMethodName(methodName);
-    }
-
-    public String getClientId() {
-        return getConfigurationOrCreate().getClientId();
-    }
-
-    /**
-     * Client ID of the drive application
-     * @param clientId
-     */
-    public void setClientId(String clientId) {
-        getConfigurationOrCreate().setClientId(clientId);
-    }
-
-    public String getClientSecret() {
-        return getConfigurationOrCreate().getClientSecret();
-    }
-
-    /**
-     * Client secret of the drive application
-     * @param clientSecret
-     */
-    public void setClientSecret(String clientSecret) {
-        getConfigurationOrCreate().setClientSecret(clientSecret);
-    }
-
-    public String getAccessToken() {
-        return getConfigurationOrCreate().getAccessToken();
-    }
-
-    /**
-     * OAuth 2 access token. This typically expires after an hour so refreshToken is recommended for long term usage.
-     * @param accessToken
-     */
-    public void setAccessToken(String accessToken) {
-        getConfigurationOrCreate().setAccessToken(accessToken);
-    }
-
-    public String getRefreshToken() {
-        return getConfigurationOrCreate().getRefreshToken();
-    }
-
-    /**
-     * OAuth 2 refresh token. Using this, the Google Calendar component can obtain a new accessToken whenever the current one expires - a necessity if the application is long-lived.
-     * @param refreshToken
-     */
-    public void setRefreshToken(String refreshToken) {
-        getConfigurationOrCreate().setRefreshToken(refreshToken);
-    }
-
-    public String getApplicationName() {
-        return getConfigurationOrCreate().getApplicationName();
-    }
-
-    /**
-     * Google drive application name. Example would be "camel-google-drive/1.0"
-     * @param applicationName
-     */
-    public void setApplicationName(String applicationName) {
-        getConfigurationOrCreate().setApplicationName(applicationName);
-    }
-
-    public List<String> getScopes() {
-        return getConfigurationOrCreate().getScopes();
-    }
-
-    /**
-     * Specifies the level of permissions you want a drive application to have to a user account. See https://developers.google.com/drive/web/scopes for more info.
-     * @param scopes
-     */
-    public void setScopes(List<String> scopes) {
-        getConfigurationOrCreate().setScopes(scopes);
     }
 }
